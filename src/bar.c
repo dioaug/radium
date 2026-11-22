@@ -1,3 +1,4 @@
+#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,136 +9,109 @@
 #include "util.h"
 #include "draw.h"
 #include "dynarray.h"
+#include "../lib/clay/clay.h"
 
-const char *font_desc_temp = "sans-serif bold 8";
+static const Clay_TextElementConfig bartext = {
+	.textColor = {1.0, 1.0, 1.0, 1.0},
+	.fontId = 0,
+	.wrapMode = CLAY_TEXT_WRAP_NONE,
+};
+static const float boxradius = 6;
+static const Clay_Color boxbg = {0.1, 0.1, 0.1, 0.4};
+static const Clay_Color boxbd = {0.2, 0.2, 0.2, 1.0};
+
 pthread_t bar_intervalthreads;
 bool bar_updating;
 
 ModuleGroup modulegroups[3];
 Bar bar = {
-    .dimensions = {0,1},
-    .style = (BoxStyle){
-        // .border_width = 2, 
-        .alignitems = Center,
-        .padding = {2, 2, 2, 2},
-    },
+	.dimensions = {0,1},
+	.style = {
+		.layout = {
+			.padding = {2, 2, 2, 2},
+			.childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+		},
+		.backgroundColor = {0.1, 0.1, 0.1, 1.0},
+	},
 };
 
+static void
+layoutbar(Monitor *m, ModuleId *update)
+{
+	static const Clay_LayoutAlignmentX groupalign[] = {
+		[ModuleGroupLeft] = CLAY_ALIGN_X_LEFT,
+		[ModuleGroupCenter] = CLAY_ALIGN_X_CENTER,
+		[ModuleGroupRight] = CLAY_ALIGN_X_RIGHT,
+	};
+	Clay_ElementDeclaration root = bar.style;
+
+	root.layout.sizing = (Clay_Sizing){
+		.width = CLAY_SIZING_GROW(0),
+		.height = CLAY_SIZING_FIT(bar.dimensions.height),
+	};
+
+	CLAY(CLAY_ID("bar"), root) {
+		for (int g = 0; g < LENGTH(modulegroups); g++) {
+			ModuleGroup *group = &modulegroups[g];
+
+			CLAY(CLAY_IDI("column", g), {
+				.layout = {
+					.sizing = { .width = CLAY_SIZING_GROW(0) },
+					.childAlignment = { .x = groupalign[g] },
+				},
+			}) {
+				if (dynarray_length(group->modules) > 0) {
+					CLAY(CLAY_IDI("group", g), group->style) {
+						for (int i = 0; i < dynarray_length(group->modules); i++) {
+							bool updatecontent = update != NULL
+								&& update->ModuleGroupIndex == g
+								&& update->ModuleIndex == i;
+
+							group->modules[i].layoutfunc(&group->modules[i], m, updatecontent);
+						}
+					}
+				}
+			}
+		}
+	}
+}
 
 void
 drawbar(Monitor *m, ModuleId* updatespecificmodcontent)
 {
-	int stw = 0;
-	unsigned occ = 0, urg = 0;
-	Client *c;
+	Clay_RenderCommandArray cmds;
+	Clay_ElementData el;
+	int height;
 
 	if (!m->showbar || (bar_updating && updatespecificmodcontent == NULL))
 		return;
 
 	bar_updating = true;
-	drw_clear(drw);
 
-	cairo_set_source_rgba(drw->ctx, 0.1, 0.1, 0.1, 1.0);
-	cairo_rectangle(drw->ctx, 0, 0, m->ww, bar.dimensions.height);
-	cairo_fill(drw->ctx);
+	/* the bar sizes its own height; the layout height only bounds culling */
+	Clay_SetLayoutDimensions((Clay_Dimensions){ m->ww, m->mh });
+	Clay_BeginLayout();
+	layoutbar(m, updatespecificmodcontent);
+	cmds = Clay_EndLayout(0);
 
-	for (int modulegroup = 0; modulegroup < LENGTH(modulegroups); modulegroup++) {
-		modulegroups[modulegroup].dimensions = (Dimensions){0,0};
-		modulegroups[modulegroup].nextelementxpos = 0;
-
-		if (dynarray_length(modulegroups[modulegroup].modules) == 0)
-			continue;
-		
-		// doing this to get the modulegroup dimensions before drawing the modules
-		for (int i = 0; i < dynarray_length(modulegroups[modulegroup].modules); i++) {
-
-			bool updatecontent = false;
-
-			if (updatespecificmodcontent != NULL &&
-				updatespecificmodcontent->ModuleGroupIndex == modulegroup && 
-				updatespecificmodcontent->ModuleIndex == i)
-					updatecontent = true;
-			else
-			 	updatecontent = false;
-
-
-			moduledraw(&modulegroups[modulegroup].modules[i], modulegroup, m, c, 0, updatecontent);
-		}
-
-		if (modulegroups[modulegroup].dimensions.width == 0)
-			continue;
-
-		if (modulegroups[modulegroup].dimensions.height > bar.dimensions.height){
-			int newbarheight = modulegroups[modulegroup].dimensions.height
-			+ bar.style.padding.t + bar.style.padding.b;
-
-			if (bar.dimensions.height != newbarheight) {
-				bar.dimensions.height = newbarheight;
-				updatebarpos(m);
-				arrange(m);
-			}
-		}
-		resizebarwin(m);
-
-		for (c = m->clients; c; c = c->next) {
-			occ |= c->tags;
-			if (c->isurgent)
-				urg |= c->tags;
-		}
-
-		modulegroups[modulegroup].dimensions.width += (modulegroups[modulegroup].style.border_width * 2) 
-		+ modulegroups[modulegroup].style.padding.l + modulegroups[modulegroup].style.padding.r
-		- modulegroups[modulegroup].style.gap;
-
-		int modgroupx = 0;
-		int modgroupy = 0;
-
-		switch (modulegroup) {
-			default:
-			case ModuleGroupLeft:
-				modgroupx = 0 + bar.style.padding.l;
-				break;
-			case ModuleGroupCenter:
-				modgroupx = (m->ww / 2) - (modulegroups[modulegroup].dimensions.width / 2);
-				break;
-			case ModuleGroupRight:
-				modgroupx = m->ww - modulegroups[modulegroup].dimensions.width - bar.style.padding.r;
-				break;
-		}
-
-		switch (bar.style.alignitems) {
-			case Start:
-				modgroupy = 0;
-				break;
-			case Center:
-				modgroupy = ((bar.dimensions.height - bar.style.padding.t - bar.style.padding.b) - modulegroups[modulegroup].dimensions.height) / 2;
-				break;
-			case End:
-				modgroupy = (bar.dimensions.height - bar.style.padding.t - bar.style.padding.b) - modulegroups[modulegroup].dimensions.height;
-				break;
-		}
-
-		drw_rect(drw,
-			modgroupx, modgroupy + bar.style.padding.t,
-			modulegroups[modulegroup].dimensions.width, modulegroups[modulegroup].dimensions.height, modulegroups[modulegroup].style.border_width,
-			(Color){0.1, 0.1, 0.1, 0.4},
-			(Color){0.2, 0.2, 0.2, 1.0}
-		);
-		
-		for (int i = 0; i < dynarray_length(modulegroups[modulegroup].modules); i++) {
-			bool updatecontent = false;
-
-			if (updatespecificmodcontent != NULL &&
-				updatespecificmodcontent->ModuleGroupIndex == modulegroup && 
-				updatespecificmodcontent->ModuleIndex == i)
-					updatecontent = true;
-			else
-			 	updatecontent = false;
-
-			moduledraw(&modulegroups[modulegroup].modules[i], modulegroup, m, c, 1, updatecontent);
-		}
+	/* Grow the bar to fit its content. It never shrinks: the height is
+	 * shared by all monitors, and shrinking would let monitors that need
+	 * different heights keep resizing each other. */
+	el = Clay_GetElementData(CLAY_ID("bar"));
+	height = ceilf(el.boundingBox.height);
+	if (height > bar.dimensions.height) {
+		bar.dimensions.height = height;
+		updatebarpos(m);
+		arrange(m);
 	}
+	resizebarwin(m);
 
+	el = Clay_GetElementData(CLAY_ID("systray"));
+	if (el.found)
+		systraypos = (Vec2){ roundf(el.boundingBox.x), roundf(el.boundingBox.y) };
+
+	drw_clear(drw);
+	clay_layout_render(drw, cmds);
 	drw_map(drw, m->barwin, 0, 0, m->ww, bar.dimensions.height);
 
 	bar_updating = false;
@@ -158,126 +132,172 @@ setupbarmodules()
 	for (int i = 0; i < LENGTH(modulegroups); i++) {
 		modulegroups[i] = (ModuleGroup){
 			.modules = dynarray_create(Module),
-			.dimensions = {0,0},
-			.nextelementxpos = 0,
 			.style = {
-				.border_width = 0, 
-				.padding = {0, 0, 0, 0},
-				.alignitems = Center,
-				.gap = 4,
+				.layout = {
+					.padding = {0, 0, 0, 0},
+					.childGap = 4,
+					.childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+				},
+				.backgroundColor = boxbg,
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 			},
 		};
 	}
 
 	Module module_tags = (Module){
-		.drawfunc = moduledraw_tags,
+		.layoutfunc = modulelayout_tags,
 		.updateinterval = 0,
 		.children = {
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
-				.border_width = 2, 
-				.padding = {1, 6, 1, 6},
-				.alignitems = Start,
-				.gap = 0,
+				.layout = {
+					/* 6px and 1px of space inside the 2px border */
+					.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
+					.childGap = 0,
+					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+				},
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+			},
+			.states = {
+				[TagEmpty] = {
+					.backgroundColor = {0.1, 0.1, 0.1, 0.0},
+					.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
+					.textColor = {0.3686, 0.3686, 0.3686, 1.0},
+				},
+				[TagOccupied] = {
+					.backgroundColor = {0.1, 0.1, 0.1, 0.0},
+					.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
+					.textColor = {1.0, 1.0, 1.0, 1.0},
+				},
+				[TagSelected] = {
+					.backgroundColor = {0.2, 0.2, 0.2, 1.0},
+					.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
+					.textColor = {1.0, 1.0, 1.0, 1.0},
+				},
 			},
 		},
-		.modulesize = {.x=0,.y=0},
 		.style = {
-			.border_width = 0, 
-			.padding = {0, 0, 0, 0},
-			.alignitems = Start,
-			.gap = 2,
+			.layout = {
+				.padding = {0, 0, 0, 0},
+				.childGap = 2,
+				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+			},
+			.backgroundColor = boxbg,
+			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 
 	Module module_rect = (Module){
-		.drawfunc = moduledraw_rect,
+		.layoutfunc = modulelayout_rect,
 		.updateinterval = 0,
 		.children = {
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
-				.border_width = 2, 
-				.padding = {1, 6, 1, 6},
-				.alignitems = Start,
-				.gap = 0,
+				.layout = { .sizing = { CLAY_SIZING_FIXED(16), CLAY_SIZING_FIXED(16) } },
+				.backgroundColor = boxbg,
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(1) },
 			},
 		},
-		.modulesize = {.x=0,.y=0},
 		.style = {
-			.border_width = 0, 
-			.padding = {0, 0, 0, 0},
-			.alignitems = Start,
-			.gap = 2,
+			.layout = {
+				.padding = {0, 0, 0, 0},
+				.childGap = 2,
+				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+			},
+			.backgroundColor = boxbg,
+			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 
 	Module module_wintitle = (Module){
-		.drawfunc = moduledraw_wintitle,
+		.layoutfunc = modulelayout_wintitle,
 		.updateinterval = 0,
 		.children = {
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
-				.border_width = 2, 
-				.padding = {1, 6, 1, 6},
-				.alignitems = Start,
-				.gap = 0,
+				.layout = {
+					.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
+					.childGap = 0,
+					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+				},
+				.backgroundColor = boxbg,
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(2) },
 			},
 		},
-		.modulesize = {.x=0,.y=0},
 		.style = {
-			.border_width = 0, 
-			.padding = {0, 0, 0, 0},
-			.alignitems = Start,
-			.gap = 2,
+			.layout = {
+				.padding = {0, 0, 0, 0},
+				.childGap = 2,
+				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+			},
+			.backgroundColor = boxbg,
+			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 
 	Module module_time = (Module){
-		.drawfunc = moduledraw_time,
+		.layoutfunc = modulelayout_time,
 		.updateinterval = 1,
 		.children = {
 			.content = (char *)malloc(sizeof(char) * 100),
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
-				.border_width = 2, 
-				.padding = {1, 6, 1, 6},
-				.alignitems = Start,
-				.gap = 0,
+				.layout = {
+					.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
+					.childGap = 0,
+					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+				},
+				.backgroundColor = boxbg,
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+				.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
 			},
 		},
-		.modulesize = {.x=0,.y=0},
 		.style = {
-			.border_width = 0, 
-			.padding = {0, 0, 0, 0},
-			.alignitems = Start,
-			.gap = 2,
+			.layout = {
+				.padding = {0, 0, 0, 0},
+				.childGap = 2,
+				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+			},
+			.backgroundColor = boxbg,
+			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 	snprintf(module_time.children.content, 100, "0");
 
 	Module module_systray = (Module){
-		.drawfunc = moduledraw_systray,
+		.layoutfunc = modulelayout_systray,
 		.updateinterval = 0,
 		.children = {
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
-				.border_width = 2, 
-				.padding = {1, 6, 1, 6},
-				.alignitems = Start,
-				.gap = 0,
+				/* the width follows the tray's icons, see modulelayout_systray() */
+				.layout = { .sizing = { .height = CLAY_SIZING_FIXED(16) } },
+				.backgroundColor = boxbg,
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(1) },
 			},
 		},
-		.modulesize = {.x=0,.y=0},
 		.style = {
-			.border_width = 0, 
-			.padding = {0, 0, 0, 0},
-			.alignitems = Start,
-			.gap = 2,
+			.layout = {
+				.padding = {0, 0, 0, 0},
+				.childGap = 2,
+				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+			},
+			.backgroundColor = boxbg,
+			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 
@@ -330,290 +350,92 @@ bar_initupdateintervals()
 }
 
 void
-moduledraw(struct Module *mod, enum alignment alignment, Monitor *m, Client *c, bool draw, bool updatecontent)
+modulelayout_rect(struct Module *mod, Monitor *m, bool updatecontent)
 {
-	Dimensions modsize = mod->drawfunc(mod, m, c, (Vec2){0,0}, 0, updatecontent);
-	if (!draw) {
-		if (modsize.width != 0 || modsize.width != 0) {
-			int moduleheight = modsize.height + (mod->style.border_width * 2) + (modulegroups[alignment].style.border_width * 2) +
-			modulegroups[alignment].style.padding.t + modulegroups[alignment].style.padding.b +
-			mod->style.padding.t + mod->style.padding.b;
-			
-			if (moduleheight > modulegroups[alignment].dimensions.height)
-				modulegroups[alignment].dimensions.height = moduleheight;
-		
-			int modulewidth = modsize.width + (mod->style.border_width * 2)
-			+ mod->style.padding.l + mod->style.padding.r;
-			
-			modulegroups[alignment].dimensions.width += modulewidth + modulegroups[alignment].style.gap;
-		}
-		return;
+	CLAY_AUTO_ID(mod->style) {
+		CLAY_AUTO_ID(mod->children.style) {}
 	}
-
-	unsigned int groupalignmentoffset = 0;
-	
-	int moduleheight = modsize.height
-	+ (mod->style.border_width * 2) + (modulegroups[alignment].style.border_width * 2)
-	+ mod->style.padding.t + mod->style.padding.b;
-
-	int baralignitemsyoffset = 0;
-	int alignitemsyoffset = 0;
-
-	switch (bar.style.alignitems) {
-		case Start:
-			baralignitemsyoffset = 0;
-			break;
-		case Center:
-			baralignitemsyoffset = ((bar.dimensions.height - bar.style.padding.t - bar.style.padding.b) - modulegroups[alignment].dimensions.height) / 2;;
-			break;
-		case End:
-			baralignitemsyoffset = (bar.dimensions.height - bar.style.padding.t - bar.style.padding.b) - modulegroups[alignment].dimensions.height;
-			break;
-	}
-
-	int test = (modulegroups[alignment].dimensions.height 
-		- (modulegroups[alignment].style.padding.t)
-		- (modulegroups[alignment].style.padding.b)) - moduleheight;
-
-	switch (modulegroups[alignment].style.alignitems) {
-		case Start:
-			alignitemsyoffset = 0 + bar.style.padding.t;
-			break;
-		case Center:
-			alignitemsyoffset = test / 2 + bar.style.padding.t;
-			break;
-		case End:
-			alignitemsyoffset = test + bar.style.padding.t;
-			break;
-	}
-
-	switch (alignment) {
-		case ModuleGroupLeft:
-			groupalignmentoffset = 0 + bar.style.padding.l;
-			break;
-		case ModuleGroupCenter:
-			groupalignmentoffset = (m->ww / 2) - (modulegroups[alignment].dimensions.width / 2);
-			break;
-		case ModuleGroupRight:
-			groupalignmentoffset = m->ww - modulegroups[alignment].dimensions.width 
-			- bar.style.padding.r;
-			break;
-	}
-	
-	Vec2 modpos = (Vec2){
-		.x = modulegroups[alignment].nextelementxpos + mod->style.border_width + modulegroups[alignment].style.border_width +
-		mod->style.padding.l + modulegroups[alignment].style.padding.l +
-		groupalignmentoffset,
-		.y = mod->style.border_width + modulegroups[alignment].style.border_width +
-		mod->style.padding.t + modulegroups[alignment].style.padding.t + 
-		alignitemsyoffset + baralignitemsyoffset,
-	};
-	
-	if (modsize.width != 0 || modsize.width != 0) {
-		drw_rect(drw,
-			modulegroups[alignment].nextelementxpos + modulegroups[alignment].style.border_width + 
-			modulegroups[alignment].style.padding.l +
-			groupalignmentoffset
-			,
-			modulegroups[alignment].style.border_width + 
-			modulegroups[alignment].style.padding.t +
-			alignitemsyoffset + baralignitemsyoffset
-			,
-			modsize.width + (mod->style.border_width * 2) +
-			mod->style.padding.l + mod->style.padding.r
-			,
-			modsize.height + (mod->style.border_width * 2) +
-			mod->style.padding.t + mod->style.padding.b
-			,
-			mod->style.border_width,
-			(Color){0.1, 0.1, 0.1, 0.4},
-			(Color){0.2, 0.2, 0.2, 1.0}
-		);
-		
-		int modulewidth = modsize.width + (mod->style.border_width * 2)
-			+ mod->style.padding.l + mod->style.padding.r;
-	
-		modulegroups[alignment].nextelementxpos += modulewidth + modulegroups[alignment].style.gap;
-	}
-
-	Dimensions _modsize = mod->drawfunc(mod, m, c, modpos, draw, updatecontent);
 }
 
-Dimensions
-moduledraw_rect(struct Module *mod, Monitor *m, Client *c, Vec2 pos, bool draw, bool updatecontent)
+void
+modulelayout_tags(struct Module *mod, Monitor *m, bool updatecontent)
 {
-	unsigned int width = 16, height = 16;
-	if (draw) {
-		drw_rect(drw, pos.x, pos.y, width, height, 1, 
-			(Color){0.1, 0.1, 0.1, 0.4},
-			(Color){0.2, 0.2, 0.2, 1.0});
-	}
+	unsigned int occ = 0;
+	Client *c;
 
-	return (Dimensions){
-		.width = width,
-		.height = height,
-	};
-}
+	for (c = m->clients; c; c = c->next)
+		occ |= c->tags;
 
-Dimensions
-moduledraw_tags(struct Module *mod, Monitor *m, Client *c, Vec2 pos, bool draw, bool updatecontent)
-{
-	unsigned int width = 0, height = 0;
-	unsigned int tagsgap = mod->style.gap;
+	CLAY_AUTO_ID(mod->style) {
+		for (int i = 0; i < LENGTH(tags); i++) {
+			const StateStyle *state = &mod->children.states[
+				m->tagset[m->seltags] & 1 << i ? TagSelected
+				: occ & 1 << i ? TagOccupied
+				: TagEmpty];
+			Clay_ElementDeclaration tagbox = mod->children.style;
+			Clay_TextElementConfig label = bartext;
 
-	unsigned int i, occ = 0, urg = 0;
+			tagbox.backgroundColor = state->backgroundColor;
+			tagbox.border = state->border;
+			label.textColor = state->textColor;
 
-	for (int i = 0; i < LENGTH(tags); i++) {
-		Dimensions textdim = drw_get_textdim(drw, tags[i], font_desc_temp); 
-
-		if (draw) {
-		
-			for (c = m->clients; c; c = c->next) {
-				occ |= c->tags;
-				if (c->isurgent)
-					urg |= c->tags;
+			/* named so a bar click can be matched to its tag */
+			CLAY(CLAY_IDI("tag", i), tagbox) {
+				CLAY_TEXT(clay_string(tags[i]), label);
 			}
-
-			Color text_color;
-			Color bg_color;
-			Color bd_color;
-
-			if (m->tagset[m->seltags] & 1 << i) {
-				text_color = (Color){1.0, 1.0, 1.0, 1.0};
-				bg_color   = (Color){0.2, 0.2, 0.2, 1.0};
-				bd_color   = (Color){0.2, 0.2, 0.2, 0.0};
-			} else if (occ & 1 << i) {
-				text_color = (Color){1.0, 1.0, 1.0, 1.0};
-				bg_color   = (Color){0.1, 0.1, 0.1, 0.0};
-				bd_color   = (Color){0.2, 0.2, 0.2, 0.0};
-			} else {
-				text_color = (Color){0.3686, 0.3686, 0.3686, 1.0};
-				bg_color   = (Color){0.1, 0.1, 0.1, 0.0};
-				bd_color   = (Color){0.2, 0.2, 0.2, 0.0};
-			}
-
-			drw_rect(drw, pos.x + width, pos.y,
-				textdim.width + (mod->children.style.border_width * 2) +
-				mod->children.style.padding.l + mod->children.style.padding.r
-				,
-				textdim.height + (mod->children.style.border_width * 2) +
-				mod->children.style.padding.b + mod->children.style.padding.t
-				, mod->children.style.border_width, bg_color, bd_color);
-			drw_text(drw, pos.x +
-				width + 
-				mod->children.style.padding.l +
-				mod->children.style.border_width
-				,
-				pos.y + mod->children.style.padding.t + mod->children.style.border_width
-				, tags[i], font_desc_temp, text_color);
-
 		}
-
-		if (i == LENGTH(tags) - 1) tagsgap = 0;
-
-		width += textdim.width + mod->children.style.padding.r + mod->children.style.padding.l + (mod->children.style.border_width * 2) + tagsgap;
-		height = textdim.height + mod->children.style.padding.t + mod->children.style.padding.b + (mod->children.style.border_width * 2);
 	}
-
-	return (Dimensions){
-		.width = width,
-		.height = height,
-	};
 }
 
-Dimensions
-moduledraw_time(struct Module *mod, Monitor *m, Client *c, Vec2 pos, bool draw, bool updatecontent)
+void
+modulelayout_time(struct Module *mod, Monitor *m, bool updatecontent)
 {
-	unsigned int width = 0, height = 0;
-
 	if (updatecontent) {
 		time_t raw_time;
 		struct tm * time_info;
-	
+
 		time(&raw_time);
 		time_info = localtime(&raw_time);
-	
+
 		char buffer[6];
 		strftime(buffer, sizeof(buffer), "%H:%M", time_info);
-	
+
 		snprintf(mod->children.content, 100, "%s", buffer);
 	}
 
-	Dimensions textdim = drw_get_textdim(drw, mod->children.content, font_desc_temp); 
-
-	width = textdim.width + (mod->children.style.border_width * 2) 
-	+ mod->children.style.padding.l + mod->children.style.padding.r;
-	height = textdim.height + (mod->children.style.border_width * 2) 
-	+ mod->children.style.padding.b + mod->children.style.padding.t;
-
-	if (draw) {
-		drw_rect(drw, pos.x, pos.y, width, height, mod->children.style.border_width,
-			(Color){0.1, 0.1, 0.1, 0.4},
-			(Color){0.2, 0.2, 0.2, 0.0});
-		drw_text(drw, 
-			pos.x + mod->children.style.padding.l + mod->children.style.border_width, 
-			pos.y + mod->children.style.padding.t + mod->children.style.border_width, 
-			mod->children.content, font_desc_temp,
-			(Color){1.0, 1.0, 1.0, 1.0});
+	CLAY_AUTO_ID(mod->style) {
+		CLAY_AUTO_ID(mod->children.style) {
+			CLAY_TEXT(clay_string(mod->children.content), bartext);
+		}
 	}
-
-	return (Dimensions){
-		.width = width,
-		.height = height,
-	};
 }
 
-Dimensions
-moduledraw_wintitle(struct Module *mod, Monitor *m, Client *c, Vec2 pos, bool draw, bool updatecontent)
+void
+modulelayout_wintitle(struct Module *mod, Monitor *m, bool updatecontent)
 {
-	unsigned int width = 0, height = 0;
+	if (m->sel == NULL || m->sel->name[0] == '\0')
+		return;
 
-	char *text = m->sel->name;
-
-	if (text == NULL || *text == '\0')
-		return (Dimensions){0,0};
-
-	Dimensions textdim = drw_get_textdim(drw, text, font_desc_temp); 
-
-	width = textdim.width + (mod->children.style.border_width * 2) 
-	+ mod->children.style.padding.l + mod->children.style.padding.r;
-	height = textdim.height + (mod->children.style.border_width * 2) 
-	+ mod->children.style.padding.b + mod->children.style.padding.t;
-
-	if (draw) {
-		drw_rect(drw, pos.x, pos.y, width, height, mod->children.style.border_width,
-			(Color){0.1, 0.1, 0.1, 0.4},
-			(Color){0.2, 0.2, 0.2, 1.0});
-		drw_text(drw, 
-			pos.x + mod->children.style.padding.l + mod->children.style.border_width, 
-			pos.y + mod->children.style.padding.t + mod->children.style.border_width, 
-			text, font_desc_temp,
-			(Color){1.0, 1.0, 1.0, 1.0});
+	CLAY_AUTO_ID(mod->style) {
+		CLAY_AUTO_ID(mod->children.style) {
+			CLAY_TEXT(clay_string(m->sel->name), bartext);
+		}
 	}
-
-	return (Dimensions){
-		.width = width,
-		.height = height,
-	};
 }
 
-Dimensions
-moduledraw_systray(struct Module *mod, Monitor *m, Client *c, Vec2 pos, bool draw, bool updatecontent)
+void
+modulelayout_systray(struct Module *mod, Monitor *m, bool updatecontent)
 {
-	unsigned int width = getsystraywidth(), height = 16;
+	Clay_ElementDeclaration tray = mod->children.style;
+	unsigned int width = getsystraywidth();
 
-	systraypos = (Vec2){pos.x, pos.y};
-	if (draw && getsystraywidth() > 1) {
-		drw_rect(drw, pos.x, pos.y, width, height, 1,
-			(Color){0.1, 0.1, 0.1, 0.4},
-			(Color){0.2, 0.2, 0.2, 1.0});
+	/* getsystraywidth() returns 1 when the tray has no icons */
+	if (width <= 1)
+		return;
+
+	tray.layout.sizing.width = CLAY_SIZING_FIXED(width);
+	CLAY_AUTO_ID(mod->style) {
+		/* drawbar() reads this element's position into systraypos */
+		CLAY(CLAY_ID("systray"), tray) {}
 	}
-
-	if (getsystraywidth() == 1)
-		width = 0;
-	
-	return (Dimensions){
-		.width = width,
-		.height = height,
-	};
 }

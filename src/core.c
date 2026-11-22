@@ -1670,7 +1670,8 @@ setup(void)
 	xinitvisual();
 	
 	drw = drw_create(dpy, screen, root, sw, sh, visual, depth, cmap);
-	
+	clay_layout_init(drw);
+
 	// if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
 	// 	die("no fonts could be loaded.");
 	bh = barheight;

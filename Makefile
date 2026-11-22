@@ -1,16 +1,24 @@
 include config.mk
 
 SRCDIR = src
+LIBDIR = lib
 BUILDDIR = build
 DOCSDIR = docs
 BIN = $(BUILDDIR)/radium
 
 SRC = $(wildcard $(SRCDIR)/*.c)
-OBJ = $(patsubst $(SRCDIR)/%.c, $(BUILDDIR)/%.o, $(SRC))
+LIBSRC = $(wildcard $(LIBDIR)/*/*.c)
+OBJ = $(patsubst $(SRCDIR)/%.c, $(BUILDDIR)/%.o, $(SRC)) \
+	$(patsubst %.c, $(BUILDDIR)/%.o, $(LIBSRC))
 
 all: $(BIN)
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
+	$(CC) -c $(CFLAGS) $< -o $@
+
+# library objects keep their folders, e.g. build/lib/clay/clay.o
+$(BUILDDIR)/$(LIBDIR)/%.o: $(LIBDIR)/%.c
+	@mkdir -p $(@D)
 	$(CC) -c $(CFLAGS) $< -o $@
 
 $(BIN): $(OBJ) | $(BUILDDIR)

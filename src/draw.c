@@ -55,43 +55,81 @@ drw_free(Drw *drw)
 	free(drw);
 }
 
-void
-drw_rect(Drw *drw, int x, int y, unsigned int w, unsigned int h, double bw, Color bg_color, Color bd_color)
+static void
+roundrectpath(cairo_t *ctx, Clay_BoundingBox b, Clay_CornerRadius r)
 {
-    double r = 6;
+	/* shrink radii that don't fit so opposite corners never overlap */
+	float max = MIN(b.width, b.height) / 2;
 
-    cairo_move_to(drw->ctx, x + r, y);
-    cairo_line_to(drw->ctx, x + w - r, y);
-    cairo_arc(drw->ctx, x + w - r, y + r, r, -M_PI/2, 0);
-    cairo_line_to(drw->ctx, x + w, y + h - r);
-    cairo_arc(drw->ctx, x + w - r, y + h - r, r, 0, M_PI/2);
-    cairo_line_to(drw->ctx, x + r, y + h);
-    cairo_arc(drw->ctx, x + r, y + h - r, r, M_PI/2, M_PI);
-    cairo_line_to(drw->ctx, x, y + r);
-    cairo_arc(drw->ctx, x + r, y + r, r, M_PI, 3*M_PI/2);
-    cairo_close_path(drw->ctx);
+	r.topLeft = MIN(r.topLeft, max);
+	r.topRight = MIN(r.topRight, max);
+	r.bottomLeft = MIN(r.bottomLeft, max);
+	r.bottomRight = MIN(r.bottomRight, max);
 
-    cairo_set_source_rgba(drw->ctx, bg_color.r, bg_color.g, bg_color.b, bg_color.a);
-	
-    cairo_fill_preserve(drw->ctx);
-    cairo_clip_preserve(drw->ctx);
+	/* a zero radius arc is just a line to the corner */
+	cairo_new_sub_path(ctx);
+	cairo_arc(ctx, b.x + b.width - r.topRight, b.y + r.topRight, r.topRight, -M_PI/2, 0);
+	cairo_arc(ctx, b.x + b.width - r.bottomRight, b.y + b.height - r.bottomRight, r.bottomRight, 0, M_PI/2);
+	cairo_arc(ctx, b.x + r.bottomLeft, b.y + b.height - r.bottomLeft, r.bottomLeft, M_PI/2, M_PI);
+	cairo_arc(ctx, b.x + r.topLeft, b.y + r.topLeft, r.topLeft, M_PI, 3*M_PI/2);
+	cairo_close_path(ctx);
+}
 
-    cairo_set_line_width(drw->ctx, bw * 2);
-    cairo_set_source_rgba(drw->ctx, bd_color.r, bd_color.g, bd_color.b, bd_color.a);
-    cairo_stroke(drw->ctx);
+/* fills the box with bg_color, then draws a border of widths bw in
+ * bd_color inside it, following the rounded corners */
+void
+drw_roundrect(Drw *drw, Clay_BoundingBox box, Clay_CornerRadius r, Clay_BorderWidth bw, Clay_Color bg_color, Clay_Color bd_color)
+{
+	Clay_BoundingBox inner = {
+		.x = box.x + bw.left,
+		.y = box.y + bw.top,
+		.width = box.width - bw.left - bw.right,
+		.height = box.height - bw.top - bw.bottom,
+	};
+	/* the inner edge runs parallel to the outer one, so its corners are
+	 * tighter by the border width */
+	Clay_CornerRadius ir = {
+		.topLeft = MAX(0, r.topLeft - MAX(bw.top, bw.left)),
+		.topRight = MAX(0, r.topRight - MAX(bw.top, bw.right)),
+		.bottomLeft = MAX(0, r.bottomLeft - MAX(bw.bottom, bw.left)),
+		.bottomRight = MAX(0, r.bottomRight - MAX(bw.bottom, bw.right)),
+	};
 
-    cairo_reset_clip(drw->ctx);
+	if (box.width <= 0 || box.height <= 0)
+		return;
+
+	cairo_new_path(drw->ctx);
+	roundrectpath(drw->ctx, box, r);
+
+	if (bg_color.a > 0) {
+		cairo_set_source_rgba(drw->ctx, bg_color.r, bg_color.g, bg_color.b, bg_color.a);
+		cairo_fill_preserve(drw->ctx);
+	}
+
+	if (bd_color.a > 0 && (bw.left || bw.right || bw.top || bw.bottom)) {
+		/* the outer outline is still the current path; adding the inner
+		 * one and filling even-odd paints only the ring between them */
+		if (inner.width > 0 && inner.height > 0)
+			roundrectpath(drw->ctx, inner, ir);
+		cairo_save(drw->ctx);
+		cairo_set_fill_rule(drw->ctx, CAIRO_FILL_RULE_EVEN_ODD);
+		cairo_set_source_rgba(drw->ctx, bd_color.r, bd_color.g, bd_color.b, bd_color.a);
+		cairo_fill(drw->ctx);
+		cairo_restore(drw->ctx);
+	}
+
+	cairo_new_path(drw->ctx);
 }
 
 void
-drw_text(Drw *drw, int x, int y, const char *text, const char *font_desc, Color color) {
-	if (text == NULL || *text == '\0')
+drw_text(Drw *drw, int x, int y, const char *text, int len, const char *font_desc, Clay_Color color) {
+	if (text == NULL || len == 0 || *text == '\0')
         return;
 
 	PangoLayout *layout = pango_cairo_create_layout(drw->ctx);
 
     cairo_set_source_rgb(drw->ctx, color.r, color.g, color.b);
-	pango_layout_set_text(layout, text, -1);
+	pango_layout_set_text(layout, text, len);
 	PangoFontDescription *desc = pango_font_description_from_string(font_desc);
 	pango_layout_set_font_description(layout, desc);
 	pango_font_description_free(desc);
@@ -123,29 +161,25 @@ drw_map(Drw *drw, Window win, int x, int y, unsigned int w, unsigned int h) {
 	XSync(drw->dpy, False);
 }
 
-Dimensions
-drw_get_textdim(Drw *drw, const char *text, const char *font_desc) {
-	if (text == NULL || *text == '\0')
-        return (Dimensions){0,0};
-	
-	Dimensions s;
-	
+/* measures text in fractional pixels; callers decide how to round */
+Clay_Dimensions
+drw_textextents(Drw *drw, const char *text, int len, const char *font_desc) {
+	if (text == NULL || len == 0 || *text == '\0')
+        return (Clay_Dimensions){0, 0};
+
 	PangoLayout *layout = pango_cairo_create_layout(drw->ctx);
 
-    pango_layout_set_text(layout, text, -1);
+    pango_layout_set_text(layout, text, len);
     PangoFontDescription *desc = pango_font_description_from_string(font_desc);
     pango_layout_set_font_description(layout, desc);
 
     int width, height;
     pango_layout_get_size(layout, &width, &height);  // in Pango units (1 Pango unit = 1/1024 of a point)
-	
+
     pango_font_description_free(desc);
     g_object_unref(layout);
-	
-	s.width = width / PANGO_SCALE;
-	s.height = height / PANGO_SCALE;
 
-    return s;
+	return (Clay_Dimensions){ (float)width / PANGO_SCALE, (float)height / PANGO_SCALE };
 }
 
 Cur *
@@ -169,4 +203,90 @@ drw_cur_free(Drw *drw, Cur *cursor)
 
 	XFreeCursor(drw->dpy, cursor->cursor);
 	free(cursor);
+}
+
+static const char *fontdescs[] = { "sans-serif bold 8" };
+static const Clay_Color transparent = {0, 0, 0, 0};
+static const Clay_BorderWidth noborder = {0};
+
+static const char *
+fontdesc(uint16_t id)
+{
+	return fontdescs[id < LENGTH(fontdescs) ? id : 0];
+}
+
+static Clay_Dimensions
+claymeasuretextfunc(Clay_StringSlice text, Clay_TextElementConfig *config, void *userdata)
+{
+	return drw_textextents(userdata, text.chars, text.length, fontdesc(config->fontId));
+}
+
+static void
+clayerror(Clay_ErrorData err)
+{
+	fprintf(stderr, "radium: layout: %.*s\n", (int)err.errorText.length, err.errorText.chars);
+}
+
+void
+clay_layout_init(Drw *drw)
+{
+	uint32_t size;
+
+	Clay_SetMaxElementCount(512);
+	size = Clay_MinMemorySize();
+	Clay_Initialize(Clay_CreateArenaWithCapacityAndMemory(size, ecalloc(1, size)),
+		(Clay_Dimensions){ 0, 0 }, (Clay_ErrorHandler){ clayerror, NULL });
+	Clay_SetMeasureTextFunction(claymeasuretextfunc, drw);
+}
+
+void
+clay_layout_render(Drw *drw, Clay_RenderCommandArray cmds)
+{
+	for (int i = 0; i < cmds.length; i++) {
+		Clay_RenderCommand *cmd = Clay_RenderCommandArray_Get(&cmds, i);
+		Clay_BoundingBox b = cmd->boundingBox;
+		/* snapped to whole pixels so edges stay sharp */
+		Clay_BoundingBox px = {
+			.x = roundf(b.x),
+			.y = roundf(b.y),
+			.width = roundf(b.x + b.width) - roundf(b.x),
+			.height = roundf(b.y + b.height) - roundf(b.y),
+		};
+
+		switch (cmd->commandType) {
+		/* Clay sends a box's fill and border as separate commands, the
+		 * border after the box's children so it's drawn on top of them */
+		case CLAY_RENDER_COMMAND_TYPE_RECTANGLE:
+			drw_roundrect(drw, px, cmd->renderData.rectangle.cornerRadius, noborder,
+				cmd->renderData.rectangle.backgroundColor, transparent);
+			break;
+		case CLAY_RENDER_COMMAND_TYPE_BORDER:
+			drw_roundrect(drw, px, cmd->renderData.border.cornerRadius, cmd->renderData.border.width,
+				transparent, cmd->renderData.border.color);
+			break;
+		case CLAY_RENDER_COMMAND_TYPE_TEXT: {
+			Clay_TextRenderData *t = &cmd->renderData.text;
+
+			drw_text(drw, px.x, px.y, t->stringContents.chars, t->stringContents.length,
+				fontdesc(t->fontId), t->textColor);
+			break;
+		}
+		case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START:
+			cairo_save(drw->ctx);
+			cairo_rectangle(drw->ctx, px.x, px.y, px.width, px.height);
+			cairo_clip(drw->ctx);
+			break;
+		case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END:
+			cairo_restore(drw->ctx);
+			break;
+		default:
+			break;
+		}
+	}
+}
+
+Clay_String
+clay_string(const char *s)
+{
+	return (Clay_String){ .isStaticallyAllocated = false, .length = strlen(s), .chars = s };
 }
