@@ -8,7 +8,7 @@
 #include "config.h"
 #include "util.h"
 #include "draw.h"
-#include "dynarray.h"
+#include "../lib/dynarray/dynarray.h"
 #include "../lib/clay/clay.h"
 
 static const Clay_TextElementConfig bartext = {

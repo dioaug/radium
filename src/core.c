@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include "core.h"
 #include "bar.h"
-#include "dynarray.h"
+#include "../lib/dynarray/dynarray.h"
 #include "config.h"
 #include "util.h"
 #ifdef XINERAMA
