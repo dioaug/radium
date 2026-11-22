@@ -33,6 +33,35 @@ typedef struct {
 	
 } Drw;
 
+typedef struct {
+	Clay_Color backgroundColor;
+	Clay_BorderElementConfig border;
+	Clay_Color textColor;
+} StateStyle;
+
+typedef struct {
+	Clay_ElementDeclaration base;
+	StateStyle subdued;
+	StateStyle selected;
+	StateStyle hover;
+} Style;
+
+enum { ClaySubdued = 1 << 0, ClaySelected = 1 << 1 }; /* states for clay_style(), hover follows the pointer */
+
+typedef struct {
+	uint32_t id;
+	Clay_BoundingBox box;
+	bool selected; // then the pointer moving over it changes nothing
+	bool hovered; // whether it was drawn with its hover style
+} ClayHoverable;
+
+typedef struct {
+	bool in; // whether the pointer is in the window
+	Clay_Vector2 pos;
+	int n; // hoverable elements in the last layout, only 64 of them are kept
+	ClayHoverable hoverables[64];
+} ClayPointer;
+
 /* Drawable abstraction */
 Drw *drw_create(Display *dpy, int screen, Window win, unsigned int w, unsigned int h, Visual *visual, unsigned int depth, Colormap cmap);
 void drw_resize(Drw *drw, unsigned int w, unsigned int h);
@@ -54,3 +83,11 @@ void drw_clear(Drw *drw);
 void clay_layout_init(Drw *drw);
 void clay_layout_render(Drw *drw, Clay_RenderCommandArray cmds); // Draws one frame's render commands.
 Clay_String clay_string(const char *s); // CLAY_STRING() for strings that aren't literals.
+
+void clay_apply_state(const StateStyle *s, Clay_ElementDeclaration *box, Clay_TextElementConfig *text); // box or text can be NULL
+void clay_layout_begin(ClayPointer *p, Clay_Dimensions size);
+Clay_RenderCommandArray clay_layout_end(void);
+Clay_ElementDeclaration clay_style(const Style *s, int states); // pass it as the declaration in CLAY(), so the element is open for hover
+Clay_TextElementConfig clay_text_style(const Style *s, Clay_TextElementConfig text, int states); // text with the text colors of the element's states
+bool clay_pointer_move(ClayPointer *p, int x, int y);
+bool clay_pointer_leave(ClayPointer *p);

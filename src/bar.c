@@ -61,7 +61,7 @@ layoutbar(Monitor *m, ModuleId *update)
 				},
 			}) {
 				if (dynarray_length(group->modules) > 0) {
-					CLAY(CLAY_IDI("group", g), group->style) {
+					CLAY(CLAY_IDI("group", g), clay_style(&group->style, 0)) {
 						for (int i = 0; i < dynarray_length(group->modules); i++) {
 							bool updatecontent = update != NULL
 								&& update->ModuleGroupIndex == g
@@ -89,10 +89,9 @@ drawbar(Monitor *m, ModuleId* updatespecificmodcontent)
 	bar_updating = true;
 
 	/* the bar sizes its own height; the layout height only bounds culling */
-	Clay_SetLayoutDimensions((Clay_Dimensions){ m->ww, m->mh });
-	Clay_BeginLayout();
+	clay_layout_begin(&m->barpointer, (Clay_Dimensions){ m->ww, m->mh });
 	layoutbar(m, updatespecificmodcontent);
-	cmds = Clay_EndLayout(0);
+	cmds = clay_layout_end();
 
 	/* Grow the bar to fit its content. It never shrinks: the height is
 	 * shared by all monitors, and shrinking would let monitors that need
@@ -133,14 +132,16 @@ setupbarmodules()
 		modulegroups[i] = (ModuleGroup){
 			.modules = dynarray_create(Module),
 			.style = {
-				.layout = {
-					.padding = {0, 0, 0, 0},
-					.childGap = 4,
-					.childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+				.base = {
+					.layout = {
+						.padding = {0, 0, 0, 0},
+						.childGap = 4,
+						.childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+					},
+					.backgroundColor = boxbg,
+					.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+					.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 				},
-				.backgroundColor = boxbg,
-				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 			},
 		};
 	}
@@ -152,41 +153,42 @@ setupbarmodules()
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
-				.layout = {
-					/* 6px and 1px of space inside the 2px border */
-					.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
-					.childGap = 0,
-					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+				.base = {
+					.layout = {
+						/* 6px and 1px of space inside the 2px border */
+						.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
+						.childGap = 0,
+						.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+					},
+					.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
 				},
-				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-			},
-			.states = {
-				[TagEmpty] = {
+				.subdued = {
 					.backgroundColor = {0.1, 0.1, 0.1, 0.0},
 					.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
 					.textColor = {0.3686, 0.3686, 0.3686, 1.0},
 				},
-				[TagOccupied] = {
-					.backgroundColor = {0.1, 0.1, 0.1, 0.0},
+				.selected = {
+					.backgroundColor = {0.2, 0.2, 0.2, 1.0},
 					.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
 					.textColor = {1.0, 1.0, 1.0, 1.0},
 				},
-				[TagSelected] = {
-					.backgroundColor = {0.2, 0.2, 0.2, 1.0},
-					.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
+				.hover = {
+					.border = { .color = {0.2, 0.2, 0.2, 1.0}, .width = CLAY_BORDER_OUTSIDE(2) },
 					.textColor = {1.0, 1.0, 1.0, 1.0},
 				},
 			},
 		},
 		.style = {
-			.layout = {
-				.padding = {0, 0, 0, 0},
-				.childGap = 2,
-				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+			.base = {
+				.layout = {
+					.padding = {0, 0, 0, 0},
+					.childGap = 2,
+					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+				},
+				.backgroundColor = boxbg,
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 			},
-			.backgroundColor = boxbg,
-			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 
@@ -197,21 +199,25 @@ setupbarmodules()
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
-				.layout = { .sizing = { CLAY_SIZING_FIXED(16), CLAY_SIZING_FIXED(16) } },
-				.backgroundColor = boxbg,
-				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(1) },
+				.base = {
+					.layout = { .sizing = { CLAY_SIZING_FIXED(16), CLAY_SIZING_FIXED(16) } },
+					.backgroundColor = boxbg,
+					.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+					.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(1) },
+				},
 			},
 		},
 		.style = {
-			.layout = {
-				.padding = {0, 0, 0, 0},
-				.childGap = 2,
-				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+			.base = {
+				.layout = {
+					.padding = {0, 0, 0, 0},
+					.childGap = 2,
+					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+				},
+				.backgroundColor = boxbg,
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 			},
-			.backgroundColor = boxbg,
-			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 
@@ -222,25 +228,29 @@ setupbarmodules()
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
+				.base = {
+					.layout = {
+						.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
+						.childGap = 0,
+						.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+					},
+					.backgroundColor = boxbg,
+					.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+					.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(2) },
+				},
+			},
+		},
+		.style = {
+			.base = {
 				.layout = {
-					.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
-					.childGap = 0,
+					.padding = {0, 0, 0, 0},
+					.childGap = 2,
 					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
 				},
 				.backgroundColor = boxbg,
 				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(2) },
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 			},
-		},
-		.style = {
-			.layout = {
-				.padding = {0, 0, 0, 0},
-				.childGap = 2,
-				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
-			},
-			.backgroundColor = boxbg,
-			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 
@@ -252,25 +262,29 @@ setupbarmodules()
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
+				.base = {
+					.layout = {
+						.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
+						.childGap = 0,
+						.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+					},
+					.backgroundColor = boxbg,
+					.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+					.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
+				},
+			},
+		},
+		.style = {
+			.base = {
 				.layout = {
-					.padding = { .left = 8, .right = 8, .top = 3, .bottom = 3 },
-					.childGap = 0,
+					.padding = {0, 0, 0, 0},
+					.childGap = 2,
 					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
 				},
 				.backgroundColor = boxbg,
 				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-				.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 			},
-		},
-		.style = {
-			.layout = {
-				.padding = {0, 0, 0, 0},
-				.childGap = 2,
-				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
-			},
-			.backgroundColor = boxbg,
-			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 	snprintf(module_time.children.content, 100, "0");
@@ -282,22 +296,26 @@ setupbarmodules()
 			// .elements = boxtest,
 			// .num_elements = LENGTH(boxtest),
 			.style = {
-				/* the width follows the tray's icons, see modulelayout_systray() */
-				.layout = { .sizing = { .height = CLAY_SIZING_FIXED(16) } },
-				.backgroundColor = boxbg,
-				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(1) },
+				.base = {
+					/* the width follows the tray's icons, see modulelayout_systray() */
+					.layout = { .sizing = { .height = CLAY_SIZING_FIXED(16) } },
+					.backgroundColor = boxbg,
+					.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+					.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(1) },
+				},
 			},
 		},
 		.style = {
-			.layout = {
-				.padding = {0, 0, 0, 0},
-				.childGap = 2,
-				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+			.base = {
+				.layout = {
+					.padding = {0, 0, 0, 0},
+					.childGap = 2,
+					.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
+				},
+				.backgroundColor = boxbg,
+				.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
+				.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 			},
-			.backgroundColor = boxbg,
-			.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
-			.border = { .color = boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 		}
 	};
 
@@ -352,8 +370,8 @@ bar_initupdateintervals()
 void
 modulelayout_rect(struct Module *mod, Monitor *m, bool updatecontent)
 {
-	CLAY_AUTO_ID(mod->style) {
-		CLAY_AUTO_ID(mod->children.style) {}
+	CLAY_AUTO_ID(clay_style(&mod->style, 0)) {
+		CLAY_AUTO_ID(clay_style(&mod->children.style, 0)) {}
 	}
 }
 
@@ -366,22 +384,18 @@ modulelayout_tags(struct Module *mod, Monitor *m, bool updatecontent)
 	for (c = m->clients; c; c = c->next)
 		occ |= c->tags;
 
-	CLAY_AUTO_ID(mod->style) {
+	CLAY_AUTO_ID(clay_style(&mod->style, 0)) {
 		for (int i = 0; i < LENGTH(tags); i++) {
-			const StateStyle *state = &mod->children.states[
-				m->tagset[m->seltags] & 1 << i ? TagSelected
-				: occ & 1 << i ? TagOccupied
-				: TagEmpty];
-			Clay_ElementDeclaration tagbox = mod->children.style;
-			Clay_TextElementConfig label = bartext;
+			int states = 0;
 
-			tagbox.backgroundColor = state->backgroundColor;
-			tagbox.border = state->border;
-			label.textColor = state->textColor;
+			if (!(occ & 1 << i))
+				states |= ClaySubdued;
+			if (m->tagset[m->seltags] & 1 << i)
+				states |= ClaySelected;
 
 			/* named so a bar click can be matched to its tag */
-			CLAY(CLAY_IDI("tag", i), tagbox) {
-				CLAY_TEXT(clay_string(tags[i]), label);
+			CLAY(CLAY_IDI("tag", i), clay_style(&mod->children.style, states)) {
+				CLAY_TEXT(clay_string(tags[i]), clay_text_style(&mod->children.style, bartext, states));
 			}
 		}
 	}
@@ -403,9 +417,9 @@ modulelayout_time(struct Module *mod, Monitor *m, bool updatecontent)
 		snprintf(mod->children.content, 100, "%s", buffer);
 	}
 
-	CLAY_AUTO_ID(mod->style) {
-		CLAY_AUTO_ID(mod->children.style) {
-			CLAY_TEXT(clay_string(mod->children.content), bartext);
+	CLAY_AUTO_ID(clay_style(&mod->style, 0)) {
+		CLAY_AUTO_ID(clay_style(&mod->children.style, 0)) {
+			CLAY_TEXT(clay_string(mod->children.content), clay_text_style(&mod->children.style, bartext, 0));
 		}
 	}
 }
@@ -416,9 +430,9 @@ modulelayout_wintitle(struct Module *mod, Monitor *m, bool updatecontent)
 	if (m->sel == NULL || m->sel->name[0] == '\0')
 		return;
 
-	CLAY_AUTO_ID(mod->style) {
-		CLAY_AUTO_ID(mod->children.style) {
-			CLAY_TEXT(clay_string(m->sel->name), bartext);
+	CLAY_AUTO_ID(clay_style(&mod->style, 0)) {
+		CLAY_AUTO_ID(clay_style(&mod->children.style, 0)) {
+			CLAY_TEXT(clay_string(m->sel->name), clay_text_style(&mod->children.style, bartext, 0));
 		}
 	}
 }
@@ -426,16 +440,16 @@ modulelayout_wintitle(struct Module *mod, Monitor *m, bool updatecontent)
 void
 modulelayout_systray(struct Module *mod, Monitor *m, bool updatecontent)
 {
-	Clay_ElementDeclaration tray = mod->children.style;
+	Style tray = mod->children.style;
 	unsigned int width = getsystraywidth();
 
 	/* getsystraywidth() returns 1 when the tray has no icons */
 	if (width <= 1)
 		return;
 
-	tray.layout.sizing.width = CLAY_SIZING_FIXED(width);
-	CLAY_AUTO_ID(mod->style) {
+	tray.base.layout.sizing.width = CLAY_SIZING_FIXED(width);
+	CLAY_AUTO_ID(clay_style(&mod->style, 0)) {
 		/* drawbar() reads this element's position into systraypos */
-		CLAY(CLAY_ID("systray"), tray) {}
+		CLAY(CLAY_ID("systray"), clay_style(&tray, 0)) {}
 	}
 }

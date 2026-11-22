@@ -17,28 +17,18 @@ struct Module;
  * its gap from the group. */
 typedef void (*ModLayoutFunc)(struct Module *mod, Monitor *m, bool updatecontent);
 
-/* Styles are Clay element declarations, used as-is for the element they
- * style. Clay draws borders over the padding instead of around it, so
- * padding has to include the border width. */
-
-/* The part of a child's style that follows its state, like a tag being
- * selected. Fields are named after the Clay ones they set. */
-typedef struct {
-	Clay_Color backgroundColor;
-	Clay_BorderElementConfig border;
-	Clay_Color textColor;
-} StateStyle;
-
-/* the states a tag can be in, indexing the tag module's children.states */
-enum { TagEmpty, TagOccupied, TagSelected, TagStateLast };
+/* Groups, modules and children are styled with a Style (see draw.h):
+ * a Clay element declaration as the base, with state styles that go over
+ * it. Hover follows the pointer but skips selected elements, and modules
+ * say when subdued and selected apply, like the tag module does for Tags
+ * without windows and the viewed Tags. Clay draws borders over the
+ * padding instead of around it, so padding has to include the border
+ * width. */
 
 typedef struct {
 	// char **elements;
 	// size_t num_elements;
-	Clay_ElementDeclaration style;
-	/* for children with states, like the tags: style's colors and
-	 * border in each state */
-	StateStyle states[TagStateLast];
+	Style style;
 	char *content;
 } ModuleChildren;
 
@@ -46,12 +36,12 @@ typedef struct Module {
 	ModLayoutFunc layoutfunc;
 	ModuleChildren children;
 	double updateinterval;
-	Clay_ElementDeclaration style;
+	Style style;
 } Module;
 
 typedef struct {
 	Module *modules;
-	Clay_ElementDeclaration style;
+	Style style;
 } ModuleGroup;
 
 typedef struct {

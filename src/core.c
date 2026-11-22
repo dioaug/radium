@@ -34,11 +34,14 @@ static void (*handler[LASTEvent]) (XEvent *) = {
 	[ConfigureRequest] = configurerequest,
 	[ConfigureNotify] = configurenotify,
 	[DestroyNotify] = destroynotify,
+	[EnterNotify] = enternotify,
 	[Expose] = expose,
 	[FocusIn] = focusin,
 	[KeyPress] = keypress,
+	[LeaveNotify] = leavenotify,
 	[MappingNotify] = mappingnotify,
 	[MapRequest] = maprequest,
+	[MotionNotify] = motionnotify,
 	[PropertyNotify] = propertynotify,
 	[ResizeRequest] = resizerequest,
 	[UnmapNotify] = unmapnotify
@@ -234,6 +237,17 @@ attachstack(Client *c)
 {
 	c->snext = c->mon->stack;
 	c->mon->stack = c;
+}
+
+Monitor *
+bartomon(Window w)
+{
+	Monitor *m;
+
+	for (m = mons; m; m = m->next)
+		if (w == m->barwin)
+			return m;
+	return NULL;
 }
 
 void
@@ -596,6 +610,15 @@ dirtomon(int dir)
 	return m;
 }
 
+void
+enternotify(XEvent *e)
+{
+	XCrossingEvent *ev = &e->xcrossing;
+	Monitor *m;
+
+	if ((m = bartomon(ev->window)) && clay_pointer_move(&m->barpointer, ev->x, ev->y))
+		drawbar(m, NULL);
+}
 
 void
 expose(XEvent *e)
@@ -969,6 +992,16 @@ keypress(XEvent *e)
 }
 
 void
+leavenotify(XEvent *e)
+{
+	XCrossingEvent *ev = &e->xcrossing;
+	Monitor *m;
+
+	if ((m = bartomon(ev->window)) && clay_pointer_leave(&m->barpointer))
+		drawbar(m, NULL);
+}
+
+void
 killclient(const Arg *arg)
 {
 	if (!selmon->sel)
@@ -1102,6 +1135,16 @@ monocle(Monitor *m)
 		for (; c; c = c->snext)
 			if (!c->isfloating && ISVISIBLE(c))
 				XMoveWindow(dpy, c->win, WIDTH(c) * -2, c->y);
+}
+
+void
+motionnotify(XEvent *e)
+{
+	XMotionEvent *ev = &e->xmotion;
+	Monitor *m;
+
+	if ((m = bartomon(ev->window)) && clay_pointer_move(&m->barpointer, ev->x, ev->y))
+		drawbar(m, NULL);
 }
 
 void
@@ -2144,7 +2187,7 @@ updatebars(void)
 	.background_pixel = 0,
 	.border_pixel = 0,
 	.colormap = cmap,
-	.event_mask = ButtonPressMask|ExposureMask
+	.event_mask = ButtonPressMask|ExposureMask|PointerMotionMask|EnterWindowMask|LeaveWindowMask
 	};
 	XClassHint ch = {"radium", "radium"};
 	for (m = mons; m; m = m->next) {

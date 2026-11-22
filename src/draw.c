@@ -290,3 +290,148 @@ clay_string(const char *s)
 {
 	return (Clay_String){ .isStaticallyAllocated = false, .length = strlen(s), .chars = s };
 }
+
+/* the pointer of the window being laid out, and the hoverable elements
+ * declared so far, which become its hoverables at clay_layout_end() */
+static ClayPointer *claylayoutpointer;
+static ClayHoverable claynext[LENGTH(((ClayPointer *)0)->hoverables)];
+static int claynnext;
+
+static bool
+claystateisset(const StateStyle *s)
+{
+	return s->backgroundColor.a > 0 || s->border.color.a > 0 || s->textColor.a > 0;
+}
+
+static bool
+claypointerin(const ClayPointer *p, Clay_BoundingBox b)
+{
+	return p->in && p->pos.x >= b.x && p->pos.x < b.x + b.width
+		&& p->pos.y >= b.y && p->pos.y < b.y + b.height;
+}
+
+/* whether drawing the window again would hover other elements */
+static bool
+clayhoverchanged(const ClayPointer *p)
+{
+	if (p->n > LENGTH(p->hoverables))
+		return true;
+	for (int i = 0; i < p->n; i++)
+		if (!p->hoverables[i].selected
+		&& claypointerin(p, p->hoverables[i].box) != p->hoverables[i].hovered)
+			return true;
+	return false;
+}
+
+/* whether the open element gets its hover style: it isn't selected and
+ * the pointer is over it, going by where the last layout put it (Clay's
+ * own Clay_Hovered() goes by the last layout of any window). Notes the
+ * element for the next pointer event, selected or not, so it's found in
+ * that layout once it isn't. */
+static bool
+clayhovered(const StateStyle *hover, bool selected)
+{
+	ClayPointer *p = claylayoutpointer;
+	uint32_t id;
+	bool hovered = false;
+	int i;
+
+	if (p == NULL || !claystateisset(hover))
+		return false;
+	id = Clay_GetOpenElementId();
+	for (i = 0; i < MIN(p->n, (int)LENGTH(p->hoverables)); i++)
+		if (p->hoverables[i].id == id) {
+			hovered = !selected && claypointerin(p, p->hoverables[i].box);
+			break;
+		}
+	/* noted once, though both the element and its text can ask */
+	for (i = 0; i < MIN(claynnext, (int)LENGTH(claynext)); i++)
+		if (claynext[i].id == id)
+			return hovered;
+	if (claynnext < LENGTH(claynext))
+		claynext[claynnext] = (ClayHoverable){ .id = id, .selected = selected, .hovered = hovered };
+	claynnext++;
+	return hovered;
+}
+
+void
+clay_apply_state(const StateStyle *s, Clay_ElementDeclaration *box, Clay_TextElementConfig *text)
+{
+	if (box && s->backgroundColor.a > 0)
+		box->backgroundColor = s->backgroundColor;
+	if (box && s->border.color.a > 0)
+		box->border = s->border;
+	if (text && s->textColor.a > 0)
+		text->textColor = s->textColor;
+}
+
+void
+clay_layout_begin(ClayPointer *p, Clay_Dimensions size)
+{
+	claylayoutpointer = p;
+	claynnext = 0;
+	Clay_SetLayoutDimensions(size);
+	Clay_BeginLayout();
+}
+
+Clay_RenderCommandArray
+clay_layout_end(void)
+{
+	Clay_RenderCommandArray cmds = Clay_EndLayout(0);
+	ClayPointer *p = claylayoutpointer;
+
+	if (p) {
+		p->n = claynnext;
+		for (int i = 0; i < MIN(claynnext, (int)LENGTH(claynext)); i++) {
+			p->hoverables[i] = claynext[i];
+			p->hoverables[i].box = Clay_GetElementData((Clay_ElementId){ .id = claynext[i].id }).boundingBox;
+		}
+	}
+	claylayoutpointer = NULL;
+	return cmds;
+}
+
+/* puts the state styles of s that apply over box and text */
+static void
+clayapplystates(const Style *s, int states, Clay_ElementDeclaration *box, Clay_TextElementConfig *text)
+{
+	if (states & ClaySubdued)
+		clay_apply_state(&s->subdued, box, text);
+	if (states & ClaySelected)
+		clay_apply_state(&s->selected, box, text);
+	if (clayhovered(&s->hover, states & ClaySelected))
+		clay_apply_state(&s->hover, box, text);
+}
+
+Clay_ElementDeclaration
+clay_style(const Style *s, int states)
+{
+	Clay_ElementDeclaration d = s->base;
+
+	clayapplystates(s, states, &d, NULL);
+	return d;
+}
+
+Clay_TextElementConfig
+clay_text_style(const Style *s, Clay_TextElementConfig text, int states)
+{
+	clayapplystates(s, states, NULL, &text);
+	return text;
+}
+
+bool
+clay_pointer_move(ClayPointer *p, int x, int y)
+{
+	p->in = true;
+	/* the pixel's center, so it's inside the boxes that cover the pixel
+	 * once they're snapped to whole pixels */
+	p->pos = (Clay_Vector2){ x + 0.5f, y + 0.5f };
+	return clayhoverchanged(p);
+}
+
+bool
+clay_pointer_leave(ClayPointer *p)
+{
+	p->in = false;
+	return clayhoverchanged(p);
+}
