@@ -253,8 +253,7 @@ bartomon(Window w)
 void
 buttonpress(XEvent *e)
 {
-	unsigned int i, x, click;
-	Arg arg = {0};
+	unsigned int click;
 	Client *c;
 	Monitor *m;
 	XButtonPressedEvent *ev = &e->xbutton;
@@ -268,17 +267,15 @@ buttonpress(XEvent *e)
 		focus(NULL);
 	}
 	if (ev->window == selmon->barwin) {
-		// TODO: handle bar clicks here
+		if (bar_click(selmon, ev->x, ev->y, ev->button, ev->state))
+			return;
 	} else if ((c = wintoclient(ev->window))) {
 		if (focusonwheel || (ev->button != Button4 && ev->button != Button5))
 			focus(c);
 		XAllowEvents(dpy, ReplayPointer, CurrentTime);
 		click = ClkClientWin;
 	}
-	for (i = 0; i < LENGTH(buttons); i++)
-		if (click == buttons[i].click && buttons[i].func && buttons[i].button == ev->button
-		&& CLEANMASK(buttons[i].mask) == CLEANMASK(ev->state))
-			buttons[i].func(click == ClkTagBar && buttons[i].arg.i == 0 ? &arg : &buttons[i].arg);
+	runbuttons(click, NULL, ev->button, ev->state);
 }
 
 void
@@ -1582,6 +1579,17 @@ run(void)
 		if (ev.type < LASTEvent && handler[ev.type])
 			handler[ev.type](&ev);
 	}
+}
+
+void
+runbuttons(unsigned int click, const Arg *arg, unsigned int button, unsigned int state)
+{
+	unsigned int i;
+
+	for (i = 0; i < LENGTH(buttons); i++)
+		if (click == buttons[i].click && buttons[i].func && buttons[i].button == button
+		&& CLEANMASK(buttons[i].mask) == CLEANMASK(state))
+			buttons[i].func(arg && buttons[i].arg.i == 0 ? arg : &buttons[i].arg);
 }
 
 void

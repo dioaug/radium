@@ -177,6 +177,7 @@ void resizeclient(Client *c, int x, int y, int w, int h, int bw);
 void resizebarwin(Monitor *m);
 void resizerequest(XEvent *e);
 void restack(Monitor *m);
+void runbuttons(unsigned int click, const Arg *arg, unsigned int button, unsigned int state);
 int sendevent(Window w, Atom proto, int m, long d0, long d1, long d2, long d3, long d4);
 void sendmon(Client *c, Monitor *m);
 void setclientstate(Client *c, long state);

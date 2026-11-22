@@ -296,6 +296,8 @@ clay_string(const char *s)
 static ClayPointer *claylayoutpointer;
 static ClayHoverable claynext[LENGTH(((ClayPointer *)0)->hoverables)];
 static int claynnext;
+static ClayClickable claynextclick[LENGTH(((ClayPointer *)0)->clickables)];
+static int claynnextclick;
 
 static bool
 claystateisset(const StateStyle *s)
@@ -303,11 +305,24 @@ claystateisset(const StateStyle *s)
 	return s->backgroundColor.a > 0 || s->border.color.a > 0 || s->textColor.a > 0;
 }
 
+/* the pixel's center, so it's inside the boxes that cover the pixel once
+ * they're snapped to whole pixels */
+static Clay_Vector2
+claypixel(int x, int y)
+{
+	return (Clay_Vector2){ x + 0.5f, y + 0.5f };
+}
+
+static bool
+clayinside(Clay_Vector2 pos, Clay_BoundingBox b)
+{
+	return pos.x >= b.x && pos.x < b.x + b.width && pos.y >= b.y && pos.y < b.y + b.height;
+}
+
 static bool
 claypointerin(const ClayPointer *p, Clay_BoundingBox b)
 {
-	return p->in && p->pos.x >= b.x && p->pos.x < b.x + b.width
-		&& p->pos.y >= b.y && p->pos.y < b.y + b.height;
+	return p->in && clayinside(p->pos, b);
 }
 
 /* whether drawing the window again would hover other elements */
@@ -370,6 +385,7 @@ clay_layout_begin(ClayPointer *p, Clay_Dimensions size)
 {
 	claylayoutpointer = p;
 	claynnext = 0;
+	claynnextclick = 0;
 	Clay_SetLayoutDimensions(size);
 	Clay_BeginLayout();
 }
@@ -385,6 +401,11 @@ clay_layout_end(void)
 		for (int i = 0; i < MIN(claynnext, (int)LENGTH(claynext)); i++) {
 			p->hoverables[i] = claynext[i];
 			p->hoverables[i].box = Clay_GetElementData((Clay_ElementId){ .id = claynext[i].id }).boundingBox;
+		}
+		p->nclickables = MIN(claynnextclick, (int)LENGTH(claynextclick));
+		for (int i = 0; i < p->nclickables; i++) {
+			p->clickables[i] = claynextclick[i];
+			p->clickables[i].box = Clay_GetElementData((Clay_ElementId){ .id = claynextclick[i].id }).boundingBox;
 		}
 	}
 	claylayoutpointer = NULL;
@@ -423,9 +444,7 @@ bool
 clay_pointer_move(ClayPointer *p, int x, int y)
 {
 	p->in = true;
-	/* the pixel's center, so it's inside the boxes that cover the pixel
-	 * once they're snapped to whole pixels */
-	p->pos = (Clay_Vector2){ x + 0.5f, y + 0.5f };
+	p->pos = claypixel(x, y);
 	return clayhoverchanged(p);
 }
 
@@ -434,4 +453,30 @@ clay_pointer_leave(ClayPointer *p)
 {
 	p->in = false;
 	return clayhoverchanged(p);
+}
+
+void
+clay_clickable(void *data, int index)
+{
+	if (claylayoutpointer == NULL)
+		return;
+	if (claynnextclick < LENGTH(claynextclick))
+		claynextclick[claynnextclick] = (ClayClickable){ .id = Clay_GetOpenElementId(), .data = data, .index = index };
+	claynnextclick++;
+}
+
+bool
+clay_pointer_click(const ClayPointer *p, int x, int y, void **data, int *index)
+{
+	Clay_Vector2 pos = claypixel(x, y);
+
+	/* elements are noted as they open, parents before their children, so
+	 * the last one under the pointer is the innermost */
+	for (int i = p->nclickables - 1; i >= 0; i--)
+		if (clayinside(pos, p->clickables[i].box)) {
+			*data = p->clickables[i].data;
+			*index = p->clickables[i].index;
+			return true;
+		}
+	return false;
 }

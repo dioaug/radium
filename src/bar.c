@@ -35,6 +35,15 @@ Bar bar = {
 	},
 };
 
+/* makes the open element take clicks for mod, if mod handles any, with
+ * child as the clicked child's index (-1 for the module's own box) */
+static void
+clickable(Module *mod, int child)
+{
+	if (mod->clickfunc)
+		clay_clickable(mod, child);
+}
+
 static void
 layoutbar(Monitor *m, ModuleId *update)
 {
@@ -125,6 +134,18 @@ drawbars(void)
 		drawbar(m, NULL);
 }
 
+bool
+bar_click(Monitor *m, int x, int y, unsigned int button, unsigned int state)
+{
+	void *mod;
+	int child;
+
+	if (!clay_pointer_click(&m->barpointer, x, y, &mod, &child))
+		return false;
+	((Module *)mod)->clickfunc(mod, m, child, button, state);
+	return true;
+}
+
 void
 setupbarmodules()
 {
@@ -148,6 +169,7 @@ setupbarmodules()
 
 	Module module_tags = (Module){
 		.layoutfunc = modulelayout_tags,
+		.clickfunc = moduleclick_tags,
 		.updateinterval = 0,
 		.children = {
 			// .elements = boxtest,
@@ -272,6 +294,10 @@ setupbarmodules()
 					.cornerRadius = CLAY_CORNER_RADIUS(boxradius),
 					.border = { .color = {0.2, 0.2, 0.2, 0.0}, .width = CLAY_BORDER_OUTSIDE(2) },
 				},
+				.hover = {
+					.border = { .color = {0.2, 0.2, 0.2, 1.0}, .width = CLAY_BORDER_OUTSIDE(2) },
+					.textColor = {1.0, 1.0, 1.0, 1.0},
+				},
 			},
 		},
 		.style = {
@@ -385,6 +411,7 @@ modulelayout_tags(struct Module *mod, Monitor *m, bool updatecontent)
 		occ |= c->tags;
 
 	CLAY_AUTO_ID(clay_style(&mod->style, 0)) {
+		clickable(mod, -1);
 		for (int i = 0; i < LENGTH(tags); i++) {
 			int states = 0;
 
@@ -393,8 +420,8 @@ modulelayout_tags(struct Module *mod, Monitor *m, bool updatecontent)
 			if (m->tagset[m->seltags] & 1 << i)
 				states |= ClaySelected;
 
-			/* named so a bar click can be matched to its tag */
 			CLAY(CLAY_IDI("tag", i), clay_style(&mod->children.style, states)) {
+				clickable(mod, i);
 				CLAY_TEXT(clay_string(tags[i]), clay_text_style(&mod->children.style, bartext, states));
 			}
 		}
@@ -452,4 +479,11 @@ modulelayout_systray(struct Module *mod, Monitor *m, bool updatecontent)
 		/* drawbar() reads this element's position into systraypos */
 		CLAY(CLAY_ID("systray"), clay_style(&tray, 0)) {}
 	}
+}
+
+void
+moduleclick_tags(struct Module *mod, Monitor *m, int child, unsigned int button, unsigned int state)
+{
+	if (child >= 0)
+		runbuttons(ClkTagBar, &(Arg){ .ui = 1 << child }, button, state);
 }

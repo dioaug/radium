@@ -16,6 +16,10 @@ struct Module;
  * A module with nothing to show declares nothing, which also removes
  * its gap from the group. */
 typedef void (*ModLayoutFunc)(struct Module *mod, Monitor *m, bool updatecontent);
+/* Handles a click on the module: child is the index of the clicked child,
+ * or -1 for the module's own box around its children. button and state
+ * are the X event's button and modifiers. */
+typedef void (*ModClickFunc)(struct Module *mod, Monitor *m, int child, unsigned int button, unsigned int state);
 
 /* Groups, modules and children are styled with a Style (see draw.h):
  * a Clay element declaration as the base, with state styles that go over
@@ -34,6 +38,7 @@ typedef struct {
 
 typedef struct Module {
 	ModLayoutFunc layoutfunc;
+	ModClickFunc clickfunc; /* NULL if it takes no clicks */
 	ModuleChildren children;
 	double updateinterval;
 	Style style;
@@ -63,6 +68,9 @@ extern bool bar_updating;
 
 void drawbar(Monitor *m, ModuleId* updatespecificmodcontent);
 void drawbars(void);
+/* Hands a click at x, y on m's bar to the module under it. Returns
+ * whether there was one that takes clicks. */
+bool bar_click(Monitor *m, int x, int y, unsigned int button, unsigned int state);
 void setupbarmodules();
 void bar_initupdateintervals();
 
@@ -71,3 +79,5 @@ void modulelayout_rect(struct Module *mod, Monitor *m, bool updatecontent);
 void modulelayout_wintitle(struct Module *mod, Monitor *m, bool updatecontent);
 void modulelayout_time(struct Module *mod, Monitor *m, bool updatecontent);
 void modulelayout_systray(struct Module *mod, Monitor *m, bool updatecontent);
+
+void moduleclick_tags(struct Module *mod, Monitor *m, int child, unsigned int button, unsigned int state);

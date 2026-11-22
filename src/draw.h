@@ -51,15 +51,24 @@ enum { ClaySubdued = 1 << 0, ClaySelected = 1 << 1 }; /* states for clay_style()
 typedef struct {
 	uint32_t id;
 	Clay_BoundingBox box;
-	bool selected; // then the pointer moving over it changes nothing
-	bool hovered; // whether it was drawn with its hover style
+	bool selected;
+	bool hovered;
 } ClayHoverable;
+
+typedef struct {
+	uint32_t id;
+	Clay_BoundingBox box;
+	void *data;
+	int index;
+} ClayClickable;
 
 typedef struct {
 	bool in; // whether the pointer is in the window
 	Clay_Vector2 pos;
 	int n; // hoverable elements in the last layout, only 64 of them are kept
 	ClayHoverable hoverables[64];
+	int nclickables; // clickable elements in the last layout, only 64 of them are kept
+	ClayClickable clickables[64];
 } ClayPointer;
 
 /* Drawable abstraction */
@@ -83,7 +92,6 @@ void drw_clear(Drw *drw);
 void clay_layout_init(Drw *drw);
 void clay_layout_render(Drw *drw, Clay_RenderCommandArray cmds); // Draws one frame's render commands.
 Clay_String clay_string(const char *s); // CLAY_STRING() for strings that aren't literals.
-
 void clay_apply_state(const StateStyle *s, Clay_ElementDeclaration *box, Clay_TextElementConfig *text); // box or text can be NULL
 void clay_layout_begin(ClayPointer *p, Clay_Dimensions size);
 Clay_RenderCommandArray clay_layout_end(void);
@@ -91,3 +99,5 @@ Clay_ElementDeclaration clay_style(const Style *s, int states); // pass it as th
 Clay_TextElementConfig clay_text_style(const Style *s, Clay_TextElementConfig text, int states); // text with the text colors of the element's states
 bool clay_pointer_move(ClayPointer *p, int x, int y);
 bool clay_pointer_leave(ClayPointer *p);
+void clay_clickable(void *data, int index); // call first thing inside an element, so clicks on it give data and index
+bool clay_pointer_click(const ClayPointer *p, int x, int y, void **data, int *index); // the innermost clickable element at x, y
