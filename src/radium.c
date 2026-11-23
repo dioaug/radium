@@ -10,6 +10,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include "core.h"
+#include "lua.h"
 
 int
 main(int argc, char *argv[])
@@ -23,14 +24,17 @@ main(int argc, char *argv[])
 	if (!(dpy = XOpenDisplay(NULL)))
 		die("radium: cannot open display");
 	checkotherwm();
+	rlua_init();
 	setup();
 #ifdef __OpenBSD__
 	if (pledge("stdio rpath proc exec", NULL) == -1)
 		die("pledge");
 #endif /* __OpenBSD__ */
 	scan();
+	rlua_startup();
 	run();
 	cleanup();
+	rlua_cleanup();
 	XCloseDisplay(dpy);
 	return EXIT_SUCCESS;
 }

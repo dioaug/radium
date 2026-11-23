@@ -2,6 +2,7 @@ include config.mk
 
 SRCDIR = src
 LIBDIR = lib
+LUADIR = lua
 BUILDDIR = build
 DOCSDIR = docs
 BIN = $(BUILDDIR)/radium
@@ -16,7 +17,6 @@ all: $(BIN)
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
 	$(CC) -c $(CFLAGS) $< -o $@
 
-# library objects keep their folders, e.g. build/lib/clay/clay.o
 $(BUILDDIR)/$(LIBDIR)/%.o: $(LIBDIR)/%.c
 	@mkdir -p $(@D)
 	$(CC) -c $(CFLAGS) $< -o $@
@@ -45,9 +45,14 @@ install: all
 	mkdir -p $(DESTDIR)$(MANPREFIX)/man1
 	sed "s/VERSION/$(VERSION)/g" < $(DOCSDIR)/radium.1 > $(DESTDIR)$(MANPREFIX)/man1/radium.1
 	chmod 644 $(DESTDIR)$(MANPREFIX)/man1/radium.1
+	rm -rf $(DESTDIR)$(DATAPREFIX)/lua
+	mkdir -p $(DESTDIR)$(DATAPREFIX)
+	cp -R $(LUADIR) $(DESTDIR)$(DATAPREFIX)
+	chmod -R u=rwX,go=rX $(DESTDIR)$(DATAPREFIX)
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/radium\
 		$(DESTDIR)$(MANPREFIX)/man1/radium.1
+	rm -rf $(DESTDIR)$(DATAPREFIX)
 
 .PHONY: all clean dist install uninstall
