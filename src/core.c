@@ -1699,6 +1699,24 @@ setnumdesktops(void){
 }
 
 void
+setrootbackground(void)
+{
+	int di;
+	unsigned long n = 0, dl;
+	unsigned char *p = NULL;
+	Atom da, pmap;
+
+	if ((pmap = XInternAtom(dpy, "_XROOTPMAP_ID", True)) != None
+	&& XGetWindowProperty(dpy, root, pmap, 0L, 1L, False, XA_PIXMAP,
+		&da, &di, &n, &dl, &p) == Success && p)
+		XFree(p);
+	if (n > 0)
+		return;
+	XSetWindowBackground(dpy, root, BlackPixel(dpy, screen));
+	XClearWindow(dpy, root);
+}
+
+void
 setup(void)
 {
 	int i;
@@ -1721,7 +1739,8 @@ setup(void)
 	sh = DisplayHeight(dpy, screen);
 	root = RootWindow(dpy, screen);
 	xinitvisual();
-	
+	setrootbackground();
+
 	drw = drw_create(dpy, screen, root, sw, sh, visual, depth, cmap);
 	clay_layout_init(drw);
 

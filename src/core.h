@@ -186,6 +186,7 @@ void setdesktopnames(void);
 void setfocus(Client *c);
 void setfullscreen(Client *c, int fullscreen);
 void setnumdesktops(void);
+void setrootbackground(void);
 void setviewport(void);
 void seturgent(Client *c, int urg);
 void showhide(Client *c);
