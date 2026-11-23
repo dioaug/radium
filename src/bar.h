@@ -63,7 +63,6 @@ enum ModuleGroupType {
 
 extern ModuleGroup modulegroups[3];
 extern Bar bar;
-extern pthread_t bar_intervalthreads;
 extern bool bar_updating;
 
 void drawbar(Monitor *m, ModuleId* updatespecificmodcontent);
@@ -73,6 +72,7 @@ void drawbars(void);
 bool bar_click(Monitor *m, int x, int y, unsigned int button, unsigned int state);
 void setupbarmodules();
 void bar_initupdateintervals();
+void bar_stopupdateintervals(void);
 
 void modulelayout_tags(struct Module *mod, Monitor *m, bool updatecontent);
 void modulelayout_rect(struct Module *mod, Monitor *m, bool updatecontent);

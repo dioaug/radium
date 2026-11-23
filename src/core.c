@@ -297,6 +297,7 @@ cleanup(void)
 	Monitor *m;
 	size_t i;
 
+	bar_stopupdateintervals();
 	view(&a);
 	selmon->lt[selmon->sellt] = &foo;
 	for (m = mons; m; m = m->next)
@@ -342,6 +343,7 @@ cleanupmon(Monitor *mon)
 		for (m = mons; m && m->next != mon; m = m->next);
 		m->next = mon->next;
 	}
+	drw_detach(drw, mon->barwin);
 	XUnmapWindow(dpy, mon->barwin);
 	XDestroyWindow(dpy, mon->barwin);
 	free(mon);

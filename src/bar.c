@@ -20,7 +20,7 @@ static const float boxradius = 6;
 static const Clay_Color boxbg = {0.1, 0.1, 0.1, 0.4};
 static const Clay_Color boxbd = {0.2, 0.2, 0.2, 1.0};
 
-pthread_t bar_intervalthreads;
+static pthread_t *intervalthreads;
 bool bar_updating;
 
 ModuleGroup modulegroups[3];
@@ -356,9 +356,11 @@ void* bar_moduleroutine(void* arg) {
 	free(arg);
 
 	while (1) {
+		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 		while (bar_updating)
 			usleep(10000);
 		drawbar(selmon, &mID);
+		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 
 		usleep(modulegroups[mID.ModuleGroupIndex].modules[mID.ModuleIndex].updateinterval * 1000000);
 	}
@@ -380,17 +382,33 @@ bar_initupdateintervals()
 		}
 	}
 
+	intervalthreads = dynarray_create(pthread_t);
 	for (size_t i = 0; i < dynarray_length(validintervals); ++i) {
 		ModuleId* modinfo = malloc(sizeof(ModuleId));
+		pthread_t thread;
 
 		*modinfo = validintervals[i];
-		if (pthread_create(&bar_intervalthreads, NULL, bar_moduleroutine, modinfo) != 0) {
+		if (pthread_create(&thread, NULL, bar_moduleroutine, modinfo) != 0) {
 			perror("Failed to create module interval thread");
 			free(modinfo);
-		}
+		} else
+			dynarray_push(intervalthreads, thread);
 	}
 
 	dynarray_destroy(validintervals);
+}
+
+void
+bar_stopupdateintervals(void)
+{
+	if (!intervalthreads)
+		return;
+	for (size_t i = 0; i < dynarray_length(intervalthreads); i++) {
+		pthread_cancel(intervalthreads[i]);
+		pthread_join(intervalthreads[i], NULL);
+	}
+	dynarray_destroy(intervalthreads);
+	intervalthreads = NULL;
 }
 
 void

@@ -86,6 +86,7 @@ Clay_Dimensions drw_textextents(Drw *drw, const char *text, int len, const char 
 
 /* Map functions */
 void drw_map(Drw *drw, Window win, int x, int y, unsigned int w, unsigned int h);
+void drw_detach(Drw *drw, Window win);
 void drw_clear(Drw *drw);
 
 /* Clay functions */

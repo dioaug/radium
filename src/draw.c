@@ -23,6 +23,7 @@ drw_create(Display *dpy, int screen, Window root, unsigned int w, unsigned int h
 		return NULL;
 	drw->dpy = dpy;
 	drw->screen = screen;
+	drw->root = root;
 	drw->w = w;
 	drw->h = h;
 
@@ -159,6 +160,13 @@ drw_map(Drw *drw, Window win, int x, int y, unsigned int w, unsigned int h) {
 	cairo_set_source_surface(drw->ctx_b, drw->sur, x, y);
 	cairo_paint(drw->ctx_b);
 	XSync(drw->dpy, False);
+}
+
+void
+drw_detach(Drw *drw, Window win)
+{
+	if (drw && cairo_xlib_surface_get_drawable(drw->sur_b) == win)
+		cairo_xlib_surface_set_drawable(drw->sur_b, drw->root, drw->w, drw->h);
 }
 
 /* measures text in fractional pixels; callers decide how to round */
