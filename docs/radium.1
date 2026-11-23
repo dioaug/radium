@@ -4,5 +4,16 @@ Radium Window Manager
 .SH SYNOPSIS
 .B radium
 .RB [ \-v ]
+.RB [ \-c
+.IR config ]
 .SH DESCRIPTION
 Radium is a dynamic window manager for X.
+.SH OPTIONS
+.TP
+.B \-v
+prints version information to stderr, then exits.
+.TP
+.BI \-c " config"
+runs
+.I config
+instead of ~/.config/radium/init.lua.

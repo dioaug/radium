@@ -91,7 +91,7 @@ luaopen_radium_utils(lua_State *L)
 }
 
 void
-rlua_init(void)
+rlua_init(const char *config)
 {
 	const char *dir;
 
@@ -108,7 +108,9 @@ rlua_init(void)
 	lua_setfield(state, LUA_REGISTRYINDEX, STARTUP);
 	lua_settop(state, 0);
 
-	if ((dir = getenv("XDG_CONFIG_HOME")) && dir[0] == '/')
+	if (config)
+		lua_pushstring(state, config);
+	else if ((dir = getenv("XDG_CONFIG_HOME")) && dir[0] == '/')
 		lua_pushfstring(state, "%s/radium/init.lua", dir);
 	else if ((dir = getenv("HOME")))
 		lua_pushfstring(state, "%s/.config/radium/init.lua", dir);

@@ -26,4 +26,4 @@ $XDG_CONFIG_HOME/radium/init.lua when XDG_CONFIG_HOME is set.
 
 Testing
 -------
-    Xephyr :1 -screen 1280x720 -ac -br -noreset & DISPLAY=:1 ./build/radium
+    Xephyr :1 -screen 1280x720 -ac -br -noreset & DISPLAY=:1 ./build/radium -c ./init.lua
