@@ -2,6 +2,7 @@
 #include <X11/Xproto.h>
 #include <X11/Xutil.h>
 #include <X11/cursorfont.h>
+#include <X11/extensions/shape.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,6 +55,17 @@ Monitor *mons, *selmon;
 static Window root, wmcheckwin;
 
 static int useargb = 0;
+static int hasshape;
+static const int edgecursor[16] = {
+	[EdgeTop|EdgeLeft] = CurResizeTL,
+	[EdgeTop] = CurResizeT,
+	[EdgeTop|EdgeRight] = CurResizeTR,
+	[EdgeRight] = CurResizeR,
+	[EdgeBottom|EdgeRight] = CurResizeBR,
+	[EdgeBottom] = CurResizeB,
+	[EdgeBottom|EdgeLeft] = CurResizeBL,
+	[EdgeLeft] = CurResizeL,
+};
 
 Display *dpy;
 Visual *visual;
@@ -254,6 +266,7 @@ void
 buttonpress(XEvent *e)
 {
 	unsigned int click;
+	Arg arg;
 	Client *c;
 	Monitor *m;
 	XButtonPressedEvent *ev = &e->xbutton;
@@ -274,6 +287,13 @@ buttonpress(XEvent *e)
 			focus(c);
 		XAllowEvents(dpy, ReplayPointer, CurrentTime);
 		click = ClkClientWin;
+	} else if ((c = resizewintoclient(ev->window))) {
+		if (focusonwheel || (ev->button != Button4 && ev->button != Button5))
+			focus(c);
+		arg.ui = edgesat(c, ev->x_root, ev->y_root);
+		if (!runbuttons(ClkClientBorder, &arg, ev->button, ev->state))
+			runbuttons(ClkClientWin, NULL, ev->button, ev->state);
+		return;
 	}
 	runbuttons(click, NULL, ev->button, ev->state);
 }
@@ -510,6 +530,7 @@ configurerequest(XEvent *e)
 				XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
 		} else
 			configure(c);
+		updateresizewin(c);
 	} else {
 		wc.x = ev->x;
 		wc.y = ev->y;
@@ -607,6 +628,25 @@ dirtomon(int dir)
 	else
 		for (m = mons; m->next != selmon; m = m->next);
 	return m;
+}
+
+unsigned int
+edgesat(Client *c, int x, int y)
+{
+	int m = resizepx;
+	int t = m + c->bw;
+	int k = 3 * t;
+	int x1 = c->x - m, y1 = c->y - m;
+	int x2 = c->x + WIDTH(c) + m, y2 = c->y + HEIGHT(c) + m;
+	unsigned int h, v;
+
+	h = x < x1 + t ? EdgeLeft : x >= x2 - t ? EdgeRight : 0;
+	v = y < y1 + t ? EdgeTop : y >= y2 - t ? EdgeBottom : 0;
+	if (h && !v)
+		v = y < y1 + k ? EdgeTop : y >= y2 - k ? EdgeBottom : 0;
+	else if (v && !h)
+		h = x < x1 + k ? EdgeLeft : x >= x2 - k ? EdgeRight : 0;
+	return h | v;
 }
 
 void
@@ -1141,9 +1181,12 @@ motionnotify(XEvent *e)
 {
 	XMotionEvent *ev = &e->xmotion;
 	Monitor *m;
+	Client *c;
 
 	if ((m = bartomon(ev->window)) && clay_pointer_move(&m->barpointer, ev->x, ev->y))
 		drawbar(m, NULL);
+	if ((c = resizewintoclient(ev->window)))
+		XDefineCursor(dpy, c->resizewin, cursor[edgecursor[edgesat(c, ev->x_root, ev->y_root)]]->cursor);
 }
 
 void
@@ -1473,13 +1516,15 @@ resizeclient(Client *c, int x, int y, int w, int h, int bw)
 	c->oldbw = c->bw; c->bw = wc.border_width = bw;
 	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
 	configure(c);
+	updateresizewin(c);
 	XSync(dpy, False);
 }
 
 void
 resizemouse(const Arg *arg)
 {
-	int ocx, ocy, nw, nh;
+	int px, py, ox1, oy1, ox2, oy2, x1, y1, x2, y2, nx, ny, nw, nh, bw;
+	unsigned int edges;
 	Client *c;
 	Monitor *m;
 	XEvent ev;
@@ -1490,12 +1535,18 @@ resizemouse(const Arg *arg)
 	if (c->isfullscreen) /* no support resizing fullscreen windows by mouse */
 		return;
 	restack(selmon);
-	ocx = c->x;
-	ocy = c->y;
-	if (XGrabPointer(dpy, root, False, MOUSEMASK, GrabModeAsync, GrabModeAsync,
-		None, cursor[CurResize]->cursor, CurrentTime) != GrabSuccess)
+	if (!getrootptr(&px, &py))
 		return;
-	XWarpPointer(dpy, None, c->win, 0, 0, 0, 0, c->w + c->bw - 1, c->h + c->bw - 1);
+	if (!(edges = arg ? arg->ui & (EdgeLeft|EdgeRight|EdgeTop|EdgeBottom) : 0))
+		edges = (px < c->x + WIDTH(c) / 2 ? EdgeLeft : EdgeRight)
+			| (py < c->y + HEIGHT(c) / 2 ? EdgeTop : EdgeBottom);
+	ox1 = c->x;
+	oy1 = c->y;
+	ox2 = c->x + WIDTH(c);
+	oy2 = c->y + HEIGHT(c);
+	if (XGrabPointer(dpy, root, False, MOUSEMASK, GrabModeAsync, GrabModeAsync,
+		None, cursor[edgecursor[edges]]->cursor, CurrentTime) != GrabSuccess)
+		return;
 	do {
 		XMaskEvent(dpy, MOUSEMASK|ExposureMask|SubstructureRedirectMask, &ev);
 		switch(ev.type) {
@@ -1509,8 +1560,12 @@ resizemouse(const Arg *arg)
 				continue;
 			lasttime = ev.xmotion.time;
 
-			nw = MAX(ev.xmotion.x - ocx - 2 * c->bw + 1, 1);
-			nh = MAX(ev.xmotion.y - ocy - 2 * c->bw + 1, 1);
+			x1 = edges & EdgeLeft ? ox1 + ev.xmotion.x - px : ox1;
+			x2 = edges & EdgeRight ? ox2 + ev.xmotion.x - px : ox2;
+			y1 = edges & EdgeTop ? oy1 + ev.xmotion.y - py : oy1;
+			y2 = edges & EdgeBottom ? oy2 + ev.xmotion.y - py : oy2;
+			nw = MAX(x2 - x1 - 2 * c->bw, 1);
+			nh = MAX(y2 - y1 - 2 * c->bw, 1);
 			if (c->mon->wx + nw >= selmon->wx && c->mon->wx + nw <= selmon->wx + selmon->ww
 			&& c->mon->wy + nh >= selmon->wy && c->mon->wy + nh <= selmon->wy + selmon->wh)
 			{
@@ -1518,12 +1573,25 @@ resizemouse(const Arg *arg)
 				&& (abs(nw - c->w) > snap || abs(nh - c->h) > snap))
 					togglefloating(NULL);
 			}
-			if (!selmon->lt[selmon->sellt]->arrange || c->isfloating)
-				resize(c, c->x, c->y, nw, nh, c->bw, 1);
+			if (!selmon->lt[selmon->sellt]->arrange || c->isfloating) {
+				bw = c->bw;
+				nx = x1;
+				ny = y1;
+				nw = x2 - x1 - 2 * bw;
+				nh = y2 - y1 - 2 * bw;
+				
+				applysizehints(c, &nx, &ny, &nw, &nh, &bw, 1);
+
+				if (edges & EdgeLeft)
+					nx = x2 - nw - 2 * bw;
+				if (edges & EdgeTop)
+					ny = y2 - nh - 2 * bw;
+				if (nx != c->x || ny != c->y || nw != c->w || nh != c->h || bw != c->bw)
+					resizeclient(c, nx, ny, nw, nh, bw);
+			}
 			break;
 		}
 	} while (ev.type != ButtonRelease);
-	XWarpPointer(dpy, None, c->win, 0, 0, 0, 0, c->w + c->bw - 1, c->h + c->bw - 1);
 	XUngrabPointer(dpy, CurrentTime);
 	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
 	if ((m = recttomon(c->x, c->y, c->w, c->h)) != selmon) {
@@ -1546,6 +1614,19 @@ resizerequest(XEvent *e)
 	}
 }
 
+Client *
+resizewintoclient(Window w)
+{
+	Client *c;
+	Monitor *m;
+
+	for (m = mons; m; m = m->next)
+		for (c = m->clients; c; c = c->next)
+			if (c->resizewin && c->resizewin == w)
+				return c;
+	return NULL;
+}
+
 void
 restack(Monitor *m)
 {
@@ -1556,8 +1637,10 @@ restack(Monitor *m)
 	drawbar(m, NULL);
 	if (!m->sel)
 		return;
-	if (m->sel->isfloating || !m->lt[m->sellt]->arrange)
+	if (m->sel->isfloating || !m->lt[m->sellt]->arrange) {
 		XRaiseWindow(dpy, m->sel->win);
+		updateresizewin(m->sel);
+	}
 	if (m->lt[m->sellt]->arrange) {
 		wc.stack_mode = Below;
 		wc.sibling = m->barwin;
@@ -1583,15 +1666,19 @@ run(void)
 	}
 }
 
-void
+int
 runbuttons(unsigned int click, const Arg *arg, unsigned int button, unsigned int state)
 {
 	unsigned int i;
+	int n = 0;
 
 	for (i = 0; i < LENGTH(buttons); i++)
 		if (click == buttons[i].click && buttons[i].func && buttons[i].button == button
-		&& CLEANMASK(buttons[i].mask) == CLEANMASK(state))
+		&& CLEANMASK(buttons[i].mask) == CLEANMASK(state)) {
 			buttons[i].func(arg && buttons[i].arg.i == 0 ? arg : &buttons[i].arg);
+			n++;
+		}
+	return n;
 }
 
 void
@@ -1719,7 +1806,7 @@ setrootbackground(void)
 void
 setup(void)
 {
-	int i;
+	int i, di;
 	XSetWindowAttributes wa;
 	Atom utf8string;
 	struct sigaction sa;
@@ -1740,6 +1827,7 @@ setup(void)
 	root = RootWindow(dpy, screen);
 	xinitvisual();
 	setrootbackground();
+	hasshape = XShapeQueryExtension(dpy, &di, &di);
 
 	drw = drw_create(dpy, screen, root, sw, sh, visual, depth, cmap);
 	clay_layout_init(drw);
@@ -1779,7 +1867,14 @@ setup(void)
 	xatom[XembedInfo] = XInternAtom(dpy, "_XEMBED_INFO", False);
 	/* init cursors */
 	cursor[CurNormal] = drw_cur_create(drw, XC_left_ptr);
-	cursor[CurResize] = drw_cur_create(drw, XC_sizing);
+	cursor[CurResizeTL] = drw_cur_create(drw, XC_top_left_corner);
+	cursor[CurResizeT] = drw_cur_create(drw, XC_top_side);
+	cursor[CurResizeTR] = drw_cur_create(drw, XC_top_right_corner);
+	cursor[CurResizeR] = drw_cur_create(drw, XC_right_side);
+	cursor[CurResizeBR] = drw_cur_create(drw, XC_bottom_right_corner);
+	cursor[CurResizeB] = drw_cur_create(drw, XC_bottom_side);
+	cursor[CurResizeBL] = drw_cur_create(drw, XC_bottom_left_corner);
+	cursor[CurResizeL] = drw_cur_create(drw, XC_left_side);
 	cursor[CurMove] = drw_cur_create(drw, XC_fleur);
 	/* init appearance */
 //  scheme = ecalloc(LENGTH(colors) + 1, sizeof(Clr *));
@@ -1918,11 +2013,13 @@ showhide(Client *c)
 		XMoveWindow(dpy, c->win, c->x, c->y);
 		if ((!c->mon->lt[c->mon->sellt]->arrange || c->isfloating) && !c->isfullscreen)
 			resize(c, c->x, c->y, c->w, c->h, c->bw, 0);
+		updateresizewin(c);
 		showhide(c->snext);
 	} else {
 		/* hide clients bottom up */
 		showhide(c->snext);
 		XMoveWindow(dpy, c->win, WIDTH(c) * -2, c->y);
+		updateresizewin(c);
 	}
 }
 
@@ -2180,6 +2277,8 @@ unmanage(Client *c, int destroyed)
 		XSetErrorHandler(xerror);
 		XUngrabServer(dpy);
 	}
+	if (c->resizewin)
+		XDestroyWindow(dpy, c->resizewin);
 	free(c);
 	focus(NULL);
 	updateclientlist();
@@ -2368,6 +2467,44 @@ updatenumlockmask(void)
 				== XKeysymToKeycode(dpy, XK_Num_Lock))
 				numlockmask = (1 << i);
 	XFreeModifiermap(modmap);
+}
+
+void
+updateresizewin(Client *c)
+{
+	int m = resizepx, t, w, h;
+	XRectangle r[4];
+	XWindowChanges wc;
+	XSetWindowAttributes wa = {
+		.override_redirect = True,
+		.event_mask = ButtonPressMask|PointerMotionMask,
+		.cursor = cursor[CurNormal]->cursor,
+	};
+
+	if (!c->hintsvalid)
+		updatesizehints(c);
+	if (!hasshape || !ISVISIBLE(c) || c->isfullscreen || c->isfixed
+	|| (!c->isfloating && c->mon->lt[c->mon->sellt]->arrange)) {
+		if (c->resizewin)
+			XUnmapWindow(dpy, c->resizewin);
+		return;
+	}
+	if (!c->resizewin)
+		c->resizewin = XCreateWindow(dpy, root, 0, 0, 1, 1, 0, 0, InputOnly, CopyFromParent,
+			CWOverrideRedirect|CWEventMask|CWCursor, &wa);
+	t = m + c->bw;
+	w = c->w + 2 * t;
+	h = c->h + 2 * t;
+	XMoveResizeWindow(dpy, c->resizewin, c->x - m, c->y - m, w, h);
+	r[0] = (XRectangle){ 0, 0, w, t };
+	r[1] = (XRectangle){ 0, h - t, w, t };
+	r[2] = (XRectangle){ 0, t, t, h - 2 * t };
+	r[3] = (XRectangle){ w - t, t, t, h - 2 * t };
+	XShapeCombineRectangles(dpy, c->resizewin, ShapeInput, 0, 0, r, LENGTH(r), ShapeSet, Unsorted);
+	wc.sibling = c->win;
+	wc.stack_mode = Above;
+	XConfigureWindow(dpy, c->resizewin, CWSibling|CWStackMode, &wc);
+	XMapWindow(dpy, c->resizewin);
 }
 
 void

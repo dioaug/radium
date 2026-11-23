@@ -34,7 +34,9 @@
 #define XEMBED_EMBEDDED_VERSION (VERSION_MAJOR << 16) | VERSION_MINOR
 
 /* enums */
-enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
+enum { CurNormal, CurResizeTL, CurResizeT, CurResizeTR, CurResizeR,
+	CurResizeBR, CurResizeB, CurResizeBL, CurResizeL, CurMove, CurLast }; /* cursor */
+enum { EdgeLeft = 1 << 0, EdgeRight = 1 << 1, EdgeTop = 1 << 2, EdgeBottom = 1 << 3 }; /* edges, for resizemouse() */
 enum { SchemeNorm, SchemeSel, SchemeSec, SchemeSecInv }; /* color schemes */
 enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
 	NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayOrientationHorz, NetSystemTrayVisual,
@@ -43,7 +45,7 @@ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
 enum { Manager, Xembed, XembedInfo, XLast }; /* Xembed atoms */
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
-	ClkClientWin, ClkRootWin, ClkLast }; /* clicks */
+	ClkClientWin, ClkClientBorder, ClkRootWin, ClkLast }; /* clicks */
 
 typedef union {
 	int i;
@@ -75,6 +77,7 @@ struct Client {
 	Client *snext;
 	Monitor *mon;
 	Window win;
+	Window resizewin;
 };
 
 typedef struct {
@@ -149,6 +152,7 @@ void destroynotify(XEvent *e);
 void detach(Client *c);
 void detachstack(Client *c);
 Monitor *dirtomon(int dir);
+unsigned int edgesat(Client *c, int x, int y);
 void enternotify(XEvent *e);
 void expose(XEvent *e);
 void focus(Client *c);
@@ -176,8 +180,9 @@ void resize(Client *c, int x, int y, int w, int h, int bw, int interact);
 void resizeclient(Client *c, int x, int y, int w, int h, int bw);
 void resizebarwin(Monitor *m);
 void resizerequest(XEvent *e);
+Client *resizewintoclient(Window w);
 void restack(Monitor *m);
-void runbuttons(unsigned int click, const Arg *arg, unsigned int button, unsigned int state);
+int runbuttons(unsigned int click, const Arg *arg, unsigned int button, unsigned int state);
 int sendevent(Window w, Atom proto, int m, long d0, long d1, long d2, long d3, long d4);
 void sendmon(Client *c, Monitor *m);
 void setclientstate(Client *c, long state);
@@ -201,6 +206,7 @@ void updatebars(void);
 void updateclientlist(void);
 int updategeom(void);
 void updatenumlockmask(void);
+void updateresizewin(Client *c);
 void updatesizehints(Client *c);
 void updatestatus(void);
 void updatesystray(int updatebar);
