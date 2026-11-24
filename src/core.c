@@ -432,6 +432,9 @@ clientmessage(XEvent *e)
 		|| cme->data.l[2] == netatom[NetWMFullscreen])
 			setfullscreen(c, (cme->data.l[0] == 1 /* _NET_WM_STATE_ADD    */
 				|| (cme->data.l[0] == 2 /* _NET_WM_STATE_TOGGLE */ && !c->isfullscreen)));
+	} else if (cme->message_type == wmatom[WMChangeState]) {
+		if (cme->data.l[0] == IconicState)
+			setclientstate(c, c == selmon->sel ? NormalState : IconicState);
 	} else if (cme->message_type == netatom[NetActiveWindow]) {
 		for (i = 0; i < LENGTH(tags) && !((1 << i) & c->tags); i++);
 		if (i < LENGTH(tags)) {
@@ -684,6 +687,8 @@ focus(Client *c)
 			selmon = c->mon;
 		if (c->isurgent)
 			seturgent(c, 0);
+		if (c->isiconic)
+			setclientstate(c, NormalState);
 		detachstack(c);
 		attachstack(c);
 		grabbuttons(c, 1);
@@ -1063,6 +1068,7 @@ manage(Window w, XWindowAttributes *wa)
 	Client *c, *t = NULL;
 	Window trans = None;
 	XWindowChanges wc;
+	XWMHints *wmh;
 
 	c = ecalloc(1, sizeof(Client));
 	c->win = w;
@@ -1101,12 +1107,9 @@ manage(Window w, XWindowAttributes *wa)
 	c->y = c->mon->my + (c->mon->mh - HEIGHT(c)) / 2;
 	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
 	grabbuttons(c, 0);
-	//c->isfloating = c->mon->pertag->createfconly;
-	
-	//if (selmon->createfconly)
-		c->isfloating = selmon->pertag->createfconly[selmon->pertag->curtag];
 	if (!c->isfloating)
-		c->isfloating = c->oldstate = trans != None || c->isfixed;
+		c->isfloating = c->oldstate = trans != None || c->isfixed
+			|| selmon->pertag->createfconly[selmon->pertag->curtag];
 	if (c->isfloating)
 		XRaiseWindow(dpy, c->win);
 	attachbottom(c);
@@ -1114,6 +1117,11 @@ manage(Window w, XWindowAttributes *wa)
 	XChangeProperty(dpy, root, netatom[NetClientList], XA_WINDOW, 32, PropModeAppend,
 		(unsigned char *) &(c->win), 1);
 	XMoveResizeWindow(dpy, c->win, c->x + 2 * sw, c->y, c->w, c->h); /* some windows require this */
+	if ((wmh = XGetWMHints(dpy, w))) {
+		if ((wmh->flags & StateHint) && wmh->initial_state == IconicState)
+			setclientstate(c, IconicState);
+		XFree(wmh);
+	}
 	setclientstate(c, NormalState);
 	if (c->mon == selmon)
 		unfocus(selmon->sel, 0);
@@ -1729,6 +1737,7 @@ setclientstate(Client *c, long state)
 {
 	long data[] = { state, None };
 
+	c->isiconic = state == IconicState;
 	XChangeProperty(dpy, c->win, wmatom[WMState], wmatom[WMState], 32,
 		PropModeReplace, (unsigned char *)data, 2);
 }
@@ -1843,6 +1852,7 @@ setup(void)
 	wmatom[WMDelete] = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
 	wmatom[WMState] = XInternAtom(dpy, "WM_STATE", False);
 	wmatom[WMTakeFocus] = XInternAtom(dpy, "WM_TAKE_FOCUS", False);
+	wmatom[WMChangeState] = XInternAtom(dpy, "WM_CHANGE_STATE", False);
 	netatom[NetActiveWindow] = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
 	netatom[NetSupported] = XInternAtom(dpy, "_NET_SUPPORTED", False);
 	netatom[NetSystemTray] = XInternAtom(dpy, "_NET_SYSTEM_TRAY_S0", False);
