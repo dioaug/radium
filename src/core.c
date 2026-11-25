@@ -2704,10 +2704,15 @@ updatesystray(int updatebar)
 void
 updatetitle(Client *c)
 {
+	char *p;
+
 	if (!gettextprop(c->win, netatom[NetWMName], c->name, sizeof c->name))
 		gettextprop(c->win, XA_WM_NAME, c->name, sizeof c->name);
 	if (c->name[0] == '\0') /* hack to mark broken clients */
 		strcpy(c->name, broken);
+	for (p = c->name; *p; p++)
+		if ((unsigned char)*p < ' ')
+			*p = ' ';
 	if (strlen(c->name) >= titlemaxlength)
 		strncpy(&c->name[titlemaxlength - 2], "...", 4);
 }

@@ -85,12 +85,23 @@ layoutbar(Monitor *m, ModuleId *update)
 	}
 }
 
+static int
+barcontentheight(void)
+{
+	float h = 0;
+
+	for (int g = 0; g < LENGTH(modulegroups); g++)
+		h = MAX(h, Clay_GetElementData(CLAY_IDI("column", g)).boundingBox.height);
+	return ceilf(h + bar.style.layout.padding.top + bar.style.layout.padding.bottom);
+}
+
 void
 drawbar(Monitor *m, ModuleId* updatespecificmodcontent)
 {
 	Clay_RenderCommandArray cmds;
 	Clay_ElementData el;
-	int height;
+	Monitor *mon;
+	int height = 0, resized;
 
 	if (!m->showbar || (bar_updating && updatespecificmodcontent == NULL))
 		return;
@@ -102,15 +113,18 @@ drawbar(Monitor *m, ModuleId* updatespecificmodcontent)
 	layoutbar(m, updatespecificmodcontent);
 	cmds = clay_layout_end();
 
-	/* Grow the bar to fit its content. It never shrinks: the height is
-	 * shared by all monitors, and shrinking would let monitors that need
-	 * different heights keep resizing each other. */
-	el = Clay_GetElementData(CLAY_ID("bar"));
-	height = ceilf(el.boundingBox.height);
-	if (height > bar.dimensions.height) {
+	m->barh = barcontentheight();
+	for (mon = mons; mon; mon = mon->next)
+		if (mon->showbar)
+			height = MAX(height, mon->barh);
+	if ((resized = height != bar.dimensions.height)) {
 		bar.dimensions.height = height;
-		updatebarpos(m);
-		arrange(m);
+		clay_layout_begin(&m->barpointer, (Clay_Dimensions){ m->ww, m->mh });
+		layoutbar(m, NULL);
+		cmds = clay_layout_end();
+		for (mon = mons; mon; mon = mon->next)
+			updatebarpos(mon);
+		arrange(NULL);
 	}
 	resizebarwin(m);
 
@@ -123,6 +137,13 @@ drawbar(Monitor *m, ModuleId* updatespecificmodcontent)
 	drw_map(drw, m->barwin, 0, 0, m->ww, bar.dimensions.height);
 
 	bar_updating = false;
+
+	if (resized) {
+		for (mon = mons; mon; mon = mon->next)
+			if (mon != m)
+				drawbar(mon, NULL);
+		updatesystray(0);
+	}
 }
 
 void
