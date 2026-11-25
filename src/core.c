@@ -2686,6 +2686,10 @@ updatesystray(int updatebar)
 			i->mon = m;
 	}
 	w = w ? w + systrayspacing : 1;
+	if (updatebar)
+		drawbar(m, NULL);
+	x = systraypos.x;
+	y = systraypos.y;
 	if (getsystraywidth() == 1)
 		x = 0 - 1;
 	XMoveResizeWindow(dpy, systray->win, x, y, w, bh);
@@ -2695,9 +2699,6 @@ updatesystray(int updatebar)
 	XMapWindow(dpy, systray->win);
 	XMapSubwindows(dpy, systray->win);
 	XSync(dpy, False);
-	
-	if (updatebar)
-		drawbar(m, NULL);
 }
 
 void
