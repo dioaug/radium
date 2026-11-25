@@ -41,7 +41,7 @@ enum { SchemeNorm, SchemeSel, SchemeSec, SchemeSecInv }; /* color schemes */
 enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
 	NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayOrientationHorz, NetSystemTrayVisual,
 	NetWMFullscreen, NetActiveWindow, NetWMWindowType,
-	NetWMWindowTypeDialog, NetWMWindowTypeDock, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetLast }; /* EWMH atoms */
+	NetWMWindowTypeDialog, NetWMWindowTypeDock, NetWMWindowTypeToolbar, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetLast }; /* EWMH atoms */
 enum { Manager, Xembed, XembedInfo, XLast }; /* Xembed atoms */
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMChangeState, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,

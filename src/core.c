@@ -1867,6 +1867,7 @@ setup(void)
 	netatom[NetWMWindowType] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
 	netatom[NetWMWindowTypeDialog] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG", False);
 	netatom[NetWMWindowTypeDock] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DOCK", False);
+	netatom[NetWMWindowTypeToolbar] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_TOOLBAR", False);
 	netatom[NetClientList] = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
 	netatom[NetDesktopViewport] = XInternAtom(dpy, "_NET_DESKTOP_VIEWPORT", False);
 	netatom[NetNumberOfDesktops] = XInternAtom(dpy, "_NET_NUMBER_OF_DESKTOPS", False);
@@ -2652,7 +2653,7 @@ updatesystray(int updatebar)
 	// XChangeProperty(dpy, systray->win, netatom[NetSystemTrayVisual], XA_VISUALID, 32,
 	// 		PropModeReplace, (unsigned char *)&visual->visualid, 1);
 	XChangeProperty(dpy, systray->win, netatom[NetWMWindowType], XA_ATOM, 32,
-			PropModeReplace, (unsigned char *)&netatom[NetWMWindowTypeDock], 1);
+			PropModeReplace, (unsigned char *)&netatom[NetWMWindowTypeToolbar], 1);
 	XMapRaised(dpy, systray->win);
 	XSetSelectionOwner(dpy, netatom[NetSystemTray], systray->win, CurrentTime);
 		if (XGetSelectionOwner(dpy, netatom[NetSystemTray]) == systray->win) {
