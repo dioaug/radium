@@ -29,8 +29,15 @@ static int sw, sh;           /* X display screen geometry width, height */
 static int bh;               /* bar height */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static unsigned int numlockmask = 0;
+static struct {
+	Monitor *m;
+	void *mod;
+	int child;
+	unsigned int button, state;
+} barpress;
 static void (*handler[LASTEvent]) (XEvent *) = {
 	[ButtonPress] = buttonpress,
+	[ButtonRelease] = buttonrelease,
 	[ClientMessage] = clientmessage,
 	[ConfigureRequest] = configurerequest,
 	[ConfigureNotify] = configurenotify,
@@ -280,8 +287,12 @@ buttonpress(XEvent *e)
 		focus(NULL);
 	}
 	if (ev->window == selmon->barwin) {
-		if (bar_click(selmon, ev->x, ev->y, ev->button, ev->state))
+		if (clay_pointer_click(&selmon->barpointer, ev->x, ev->y, &barpress.mod, &barpress.child)) {
+			barpress.m = selmon;
+			barpress.button = ev->button;
+			barpress.state = ev->state;
 			return;
+		}
 	} else if ((c = wintoclient(ev->window))) {
 		if (focusonwheel || (ev->button != Button4 && ev->button != Button5))
 			focus(c);
@@ -296,6 +307,23 @@ buttonpress(XEvent *e)
 		return;
 	}
 	runbuttons(click, NULL, ev->button, ev->state);
+}
+
+void
+buttonrelease(XEvent *e)
+{
+	XButtonReleasedEvent *ev = &e->xbutton;
+	Monitor *m = barpress.m;
+	void *mod;
+	int child;
+
+	if (!m || ev->button != barpress.button)
+		return;
+	barpress.m = NULL;
+	if (ev->window == m->barwin
+	&& clay_pointer_click(&m->barpointer, ev->x, ev->y, &mod, &child)
+	&& mod == barpress.mod && child == barpress.child)
+		bar_click(m, ev->x, ev->y, barpress.button, barpress.state);
 }
 
 void
@@ -363,6 +391,8 @@ cleanupmon(Monitor *mon)
 		for (m = mons; m && m->next != mon; m = m->next);
 		m->next = mon->next;
 	}
+	if (barpress.m == mon)
+		barpress.m = NULL;
 	drw_detach(drw, mon->barwin);
 	XUnmapWindow(dpy, mon->barwin);
 	XDestroyWindow(dpy, mon->barwin);
@@ -2325,7 +2355,7 @@ updatebars(void)
 	.background_pixel = 0,
 	.border_pixel = 0,
 	.colormap = cmap,
-	.event_mask = ButtonPressMask|ExposureMask|PointerMotionMask|EnterWindowMask|LeaveWindowMask
+	.event_mask = ButtonPressMask|ButtonReleaseMask|ExposureMask|PointerMotionMask|EnterWindowMask|LeaveWindowMask
 	};
 	XClassHint ch = {"radium", "radium"};
 	for (m = mons; m; m = m->next) {

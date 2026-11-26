@@ -143,6 +143,7 @@ void attachbottom(Client *c);
 void attachstack(Client *c);
 Monitor *bartomon(Window w);
 void buttonpress(XEvent *e);
+void buttonrelease(XEvent *e);
 void cleanupmon(Monitor *mon);
 void clientmessage(XEvent *e);
 void configure(Client *c);
