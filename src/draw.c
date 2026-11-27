@@ -9,7 +9,9 @@
 
 #include <cairo/cairo.h>
 #include <cairo/cairo-xlib.h>
+#include <fontconfig/fontconfig.h>
 #include <pango/pangocairo.h>
+#include <pango/pangofc-fontmap.h>
 
 #include "draw.h"
 #include "util.h"
@@ -122,19 +124,87 @@ drw_roundrect(Drw *drw, Clay_BoundingBox box, Clay_CornerRadius r, Clay_BorderWi
 	cairo_new_path(drw->ctx);
 }
 
+typedef struct {
+	char *name;
+	uint16_t weight;
+	uint16_t style;
+	PangoFontDescription *desc;
+} FontDesc;
+
+static const char defaultfont[] = "sans-serif bold";
+static const uint16_t defaultfontsize = 8;
+static FontDesc fontdescs[256];
+static uint16_t nfontdescs;
+static unsigned int fontfiles;
+
+bool
+drw_font_add(const char *path)
+{
+	const FcChar8 *p = (const FcChar8 *)path;
+	bool dir = path[0] && path[strlen(path) - 1] == '/';
+
+	if (FcFileIsDir(p) != dir)
+		return false;
+	if (!(dir ? FcConfigAppFontAddDir(NULL, p) : FcConfigAppFontAddFile(NULL, p)))
+		return false;
+	fontfiles++;
+	return true;
+}
+
+static uint16_t
+fontid(const char *name, uint16_t weight, uint16_t style)
+{
+	FontDesc *f;
+	uint16_t i;
+
+	for (i = 0; i < nfontdescs; i++) {
+		f = &fontdescs[i];
+		if (f->weight == weight && f->style == style && !strcmp(f->name, name))
+			return i;
+	}
+	if (nfontdescs == LENGTH(fontdescs))
+		return 0;
+	f = &fontdescs[nfontdescs];
+	f->name = g_strdup(name);
+	f->weight = weight;
+	f->style = style;
+	f->desc = pango_font_description_from_string(name);
+	pango_font_description_unset_fields(f->desc, PANGO_FONT_MASK_SIZE);
+	if (weight)
+		pango_font_description_set_weight(f->desc, weight * 100);
+	if (style)
+		pango_font_description_set_style(f->desc, style - 1);
+	return nfontdescs++;
+}
+
+static PangoLayout *
+createlayout(Drw *drw, const char *text, int len, uint16_t font, uint16_t size)
+{
+	PangoFontMap *map = pango_cairo_font_map_get_default();
+	PangoFontDescription *desc;
+	PangoLayout *layout;
+
+	if (GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(map), "radium-fontfiles")) != fontfiles) {
+		pango_fc_font_map_config_changed(PANGO_FC_FONT_MAP(map));
+		g_object_set_data(G_OBJECT(map), "radium-fontfiles", GUINT_TO_POINTER(fontfiles));
+	}
+	desc = pango_font_description_copy_static(fontdescs[font < nfontdescs ? font : 0].desc);
+	pango_font_description_set_size(desc, (size ? size : defaultfontsize) * PANGO_SCALE);
+	layout = pango_cairo_create_layout(drw->ctx);
+	pango_layout_set_font_description(layout, desc);
+	pango_layout_set_text(layout, text, len);
+	pango_font_description_free(desc);
+	return layout;
+}
+
 void
-drw_text(Drw *drw, int x, int y, const char *text, int len, const char *font_desc, Clay_Color color) {
+drw_text(Drw *drw, int x, int y, const char *text, int len, uint16_t font, uint16_t size, Clay_Color color) {
 	if (text == NULL || len == 0 || *text == '\0')
         return;
 
-	PangoLayout *layout = pango_cairo_create_layout(drw->ctx);
+	PangoLayout *layout = createlayout(drw, text, len, font, size);
 
     cairo_set_source_rgb(drw->ctx, color.r, color.g, color.b);
-	pango_layout_set_text(layout, text, len);
-	PangoFontDescription *desc = pango_font_description_from_string(font_desc);
-	pango_layout_set_font_description(layout, desc);
-	pango_font_description_free(desc);
-
 	cairo_move_to(drw->ctx, x, y);
 
 	pango_cairo_show_layout(drw->ctx, layout);
@@ -171,20 +241,15 @@ drw_detach(Drw *drw, Window win)
 
 /* measures text in fractional pixels; callers decide how to round */
 Clay_Dimensions
-drw_textextents(Drw *drw, const char *text, int len, const char *font_desc) {
+drw_textextents(Drw *drw, const char *text, int len, uint16_t font, uint16_t size) {
 	if (text == NULL || len == 0 || *text == '\0')
         return (Clay_Dimensions){0, 0};
 
-	PangoLayout *layout = pango_cairo_create_layout(drw->ctx);
-
-    pango_layout_set_text(layout, text, len);
-    PangoFontDescription *desc = pango_font_description_from_string(font_desc);
-    pango_layout_set_font_description(layout, desc);
+	PangoLayout *layout = createlayout(drw, text, len, font, size);
 
     int width, height;
     pango_layout_get_size(layout, &width, &height);  // in Pango units (1 Pango unit = 1/1024 of a point)
 
-    pango_font_description_free(desc);
     g_object_unref(layout);
 
 	return (Clay_Dimensions){ (float)width / PANGO_SCALE, (float)height / PANGO_SCALE };
@@ -213,20 +278,13 @@ drw_cur_free(Drw *drw, Cur *cursor)
 	free(cursor);
 }
 
-static const char *fontdescs[] = { "sans-serif bold 8" };
 static const Clay_Color transparent = {0, 0, 0, 0};
 static const Clay_BorderWidth noborder = {0};
-
-static const char *
-fontdesc(uint16_t id)
-{
-	return fontdescs[id < LENGTH(fontdescs) ? id : 0];
-}
 
 static Clay_Dimensions
 claymeasuretextfunc(Clay_StringSlice text, Clay_TextElementConfig *config, void *userdata)
 {
-	return drw_textextents(userdata, text.chars, text.length, fontdesc(config->fontId));
+	return drw_textextents(userdata, text.chars, text.length, config->fontId, config->fontSize);
 }
 
 static void
@@ -245,6 +303,7 @@ clay_layout_init(Drw *drw)
 	Clay_Initialize(Clay_CreateArenaWithCapacityAndMemory(size, ecalloc(1, size)),
 		(Clay_Dimensions){ 0, 0 }, (Clay_ErrorHandler){ clayerror, NULL });
 	Clay_SetMeasureTextFunction(claymeasuretextfunc, drw);
+	fontid(defaultfont, 0, 0);
 }
 
 void
@@ -276,7 +335,7 @@ clay_layout_render(Drw *drw, Clay_RenderCommandArray cmds)
 			Clay_TextRenderData *t = &cmd->renderData.text;
 
 			drw_text(drw, px.x, px.y, t->stringContents.chars, t->stringContents.length,
-				fontdesc(t->fontId), t->textColor);
+				t->fontId, t->fontSize, t->textColor);
 			break;
 		}
 		case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START:
@@ -306,6 +365,35 @@ static ClayHoverable claynext[LENGTH(((ClayPointer *)0)->hoverables)];
 static int claynnext;
 static ClayClickable claynextclick[LENGTH(((ClayPointer *)0)->clickables)];
 static int claynnextclick;
+
+typedef struct {
+	int32_t depth;
+	int32_t element;
+	const char *font;
+	uint16_t size;
+	uint16_t weight;
+	uint16_t style;
+} Fnt;
+
+const int32_t *clay_open_elements(int32_t *n);
+
+static Fnt fonts[64];
+static int nfonts;
+
+static Fnt
+inheritedfont(void)
+{
+	int32_t n;
+	const int32_t *open = clay_open_elements(&n);
+	const Fnt *f;
+
+	for (; nfonts > 0; nfonts--) {
+		f = &fonts[nfonts - 1];
+		if (f->depth < n && open[f->depth] == f->element)
+			return *f;
+	}
+	return (Fnt){0};
+}
 
 static bool
 claystateisset(const StateStyle *s)
@@ -391,9 +479,16 @@ clay_apply_state(const StateStyle *s, Clay_ElementDeclaration *box, Clay_TextEle
 void
 clay_layout_begin(ClayPointer *p, Clay_Dimensions size)
 {
+	static unsigned int measuredfontfiles;
+
+	if (measuredfontfiles != fontfiles) {
+		Clay_ResetMeasureTextCache();
+		measuredfontfiles = fontfiles;
+	}
 	claylayoutpointer = p;
 	claynnext = 0;
 	claynnextclick = 0;
+	nfonts = 0;
 	Clay_SetLayoutDimensions(size);
 	Clay_BeginLayout();
 }
@@ -436,14 +531,39 @@ Clay_ElementDeclaration
 clay_style(const Style *s, int states)
 {
 	Clay_ElementDeclaration d = s->base;
+	Fnt f = inheritedfont();
+	int32_t n;
+	const int32_t *open = clay_open_elements(&n);
 
+	if ((s->font || s->fontsize || s->fontweight || s->fontstyle) && n > 0 && nfonts < LENGTH(fonts))
+		fonts[nfonts++] = (Fnt){
+			.depth = n - 1,
+			.element = open[n - 1],
+			.font = s->font ? s->font : f.font,
+			.size = s->fontsize ? s->fontsize : f.size,
+			.weight = s->fontweight ? s->fontweight : f.weight,
+			.style = s->fontstyle ? s->fontstyle : f.style,
+		};
 	clayapplystates(s, states, &d, NULL);
 	return d;
 }
 
 Clay_TextElementConfig
+clay_text(Clay_TextElementConfig text)
+{
+	Fnt f = inheritedfont();
+
+	if (!text.fontId)
+		text.fontId = fontid(f.font ? f.font : defaultfont, f.weight, f.style);
+	if (!text.fontSize)
+		text.fontSize = f.size;
+	return text;
+}
+
+Clay_TextElementConfig
 clay_text_style(const Style *s, Clay_TextElementConfig text, int states)
 {
+	text = clay_text(text);
 	clayapplystates(s, states, NULL, &text);
 	return text;
 }

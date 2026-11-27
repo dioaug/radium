@@ -12,4 +12,15 @@ local radium = {}
 ---@param ... fun()
 function radium.on_startup(...) end
 
+---Loads font files so they can be used by name, without the need
+---to have them installed. Relative paths start at the config file's folder, and a path
+---ending in / loads every font in that folder and its subfolders.
+---
+---```lua
+---radium.load_fonts("fonts/Inter-Regular.ttf", "fonts/Inter-Bold.ttf")
+---radium.load_fonts("fonts/")
+---```
+---@param ... string
+function radium.load_fonts(...) end
+
 return radium

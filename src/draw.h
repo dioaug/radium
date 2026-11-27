@@ -41,12 +41,19 @@ typedef struct {
 
 typedef struct {
 	Clay_ElementDeclaration base;
+	const char *font;
+	uint16_t fontsize;
+	uint16_t fontweight;
+	uint16_t fontstyle;
 	StateStyle subdued;
 	StateStyle selected;
 	StateStyle hover;
 } Style;
 
 enum { ClaySubdued = 1 << 0, ClaySelected = 1 << 1 }; /* states for clay_style(), hover follows the pointer */
+enum { WeightThin = 1, WeightExtraLight, WeightLight, WeightRegular, WeightMedium,
+	WeightSemiBold, WeightBold, WeightExtraBold, WeightBlack };
+enum { StyleNormal = 1, StyleOblique, StyleItalic };
 
 typedef struct {
 	uint32_t id;
@@ -81,8 +88,9 @@ Cur *drw_cur_create(Drw *drw, int shape);
 void drw_cur_free(Drw *drw, Cur *cursor);
 
 void drw_roundrect(Drw *drw, Clay_BoundingBox box, Clay_CornerRadius r, Clay_BorderWidth bw, Clay_Color bg_color, Clay_Color bd_color);
-void drw_text(Drw *drw, int x, int y, const char *text, int len, const char *font_desc, Clay_Color color);
-Clay_Dimensions drw_textextents(Drw *drw, const char *text, int len, const char *font_desc);
+bool drw_font_add(const char *path);
+void drw_text(Drw *drw, int x, int y, const char *text, int len, uint16_t font, uint16_t size, Clay_Color color);
+Clay_Dimensions drw_textextents(Drw *drw, const char *text, int len, uint16_t font, uint16_t size);
 
 /* Map functions */
 void drw_map(Drw *drw, Window win, int x, int y, unsigned int w, unsigned int h);
@@ -97,6 +105,7 @@ void clay_apply_state(const StateStyle *s, Clay_ElementDeclaration *box, Clay_Te
 void clay_layout_begin(ClayPointer *p, Clay_Dimensions size);
 Clay_RenderCommandArray clay_layout_end(void);
 Clay_ElementDeclaration clay_style(const Style *s, int states); // pass it as the declaration in CLAY(), so the element is open for hover
+Clay_TextElementConfig clay_text(Clay_TextElementConfig text);
 Clay_TextElementConfig clay_text_style(const Style *s, Clay_TextElementConfig text, int states); // text with the text colors of the element's states
 bool clay_pointer_move(ClayPointer *p, int x, int y);
 bool clay_pointer_leave(ClayPointer *p);

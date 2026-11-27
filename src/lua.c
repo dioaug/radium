@@ -1,6 +1,7 @@
 /* See LICENSE file for copyright and license details. */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
@@ -9,6 +10,7 @@
 #include "lua.h"
 
 #define STARTUP "radium.startup" /* registry field with the functions given to on_startup() */
+#define CONFIGDIR "radium.configdir"
 
 static lua_State *state;
 
@@ -49,10 +51,33 @@ radium_onstartup(lua_State *L)
 }
 
 static int
+radium_loadfonts(lua_State *L)
+{
+	int i, n = lua_gettop(L);
+
+	for (i = 1; i <= n; i++)
+		luaL_checkstring(L, i);
+	for (i = 1; i <= n; i++) {
+		if (lua_tostring(L, i)[0] == '/')
+			lua_pushvalue(L, i);
+		else {
+			lua_getfield(L, LUA_REGISTRYINDEX, CONFIGDIR);
+			lua_pushvalue(L, i);
+			lua_concat(L, 2);
+		}
+		if (!drw_font_add(lua_tostring(L, -1)))
+			fprintf(stderr, "radium: cannot load font %s\n", lua_tostring(L, -1));
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
 luaopen_radium(lua_State *L)
 {
 	static const luaL_Reg funcs[] = {
 		{ "on_startup", radium_onstartup },
+		{ "load_fonts", radium_loadfonts },
 		{ NULL, NULL }
 	};
 
@@ -93,7 +118,7 @@ luaopen_radium_utils(lua_State *L)
 void
 rlua_init(const char *config)
 {
-	const char *dir;
+	const char *dir, *path, *slash;
 
 	if (!(state = luaL_newstate()))
 		die("radium: cannot create the Lua state");
@@ -116,7 +141,13 @@ rlua_init(const char *config)
 		lua_pushfstring(state, "%s/.config/radium/init.lua", dir);
 	else
 		return;
-	if (luaL_loadfile(state, lua_tostring(state, -1)) == LUA_OK)
+	path = lua_tostring(state, -1);
+	if ((slash = strrchr(path, '/')))
+		lua_pushlstring(state, path, slash - path + 1);
+	else
+		lua_pushliteral(state, "./");
+	lua_setfield(state, LUA_REGISTRYINDEX, CONFIGDIR);
+	if (luaL_loadfile(state, path) == LUA_OK)
 		call(state);
 	else
 		fprintf(stderr, "radium: %s\n", lua_tostring(state, -1));

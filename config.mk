@@ -22,8 +22,8 @@ FREETYPEINC = /usr/include/freetype2
 # Lua, the pkg-config name of the version to use
 LUA = lua5.4
 
-PKG_CONFIG_CFLAGS = $(shell pkg-config --cflags pangocairo $(LUA))
-PKG_CONFIG_LIBS   = $(shell pkg-config --libs pangocairo $(LUA))
+PKG_CONFIG_CFLAGS = $(shell pkg-config --cflags pangocairo pangoft2 $(LUA))
+PKG_CONFIG_LIBS   = $(shell pkg-config --libs pangocairo pangoft2 $(LUA))
 
 # includes and libs
 INCS = -I${X11INC} -I${FREETYPEINC} ${PKG_CONFIG_CFLAGS}
