@@ -2,14 +2,9 @@
 
 #include <stdbool.h>
 
-#include "core.h"
-#include "draw.h"
-#include "../lib/clay/clay.h"
-
-typedef struct {
-	int ModuleGroupIndex;
-	int ModuleIndex;
-} ModuleId;
+#include "../../core.h"
+#include "../../draw.h"
+#include "../../../lib/clay/clay.h"
 
 struct Module;
 /* Declares the module's Clay elements for the frame being laid out.
@@ -49,37 +44,11 @@ typedef struct {
 	Style style;
 } ModuleGroup;
 
-typedef struct {
-	Dimensions dimensions;
-	/* drawbar() sets the sizing: the monitor's width, and the content's height */
-	Clay_ElementDeclaration style;
-} Bar;
-
 enum ModuleGroupType {
 	ModuleGroupLeft,
 	ModuleGroupCenter,
 	ModuleGroupRight,
+	ModuleGroupLast,
 };
 
-extern ModuleGroup modulegroups[3];
-extern Bar bar;
-extern bool bar_updating;
-
-void drawbar(Monitor *m, ModuleId* updatespecificmodcontent);
-void drawbars(void);
-/* Hands a click at x, y on m's bar to the module under it. Returns
- * whether there was one that takes clicks. */
-bool bar_click(Monitor *m, int x, int y, unsigned int button, unsigned int state);
-void setupbarmodules();
-void bar_initupdateintervals();
-void bar_stopupdateintervals(void);
-
-void modulelayout_tags(struct Module *mod, Monitor *m, bool updatecontent);
-void modulelayout_rect(struct Module *mod, Monitor *m, bool updatecontent);
-void modulelayout_wintitle(struct Module *mod, Monitor *m, bool updatecontent);
-void modulelayout_time(struct Module *mod, Monitor *m, bool updatecontent);
-void modulelayout_systray(struct Module *mod, Monitor *m, bool updatecontent);
-void modulelayout_errors(struct Module *mod, Monitor *m, bool updatecontent);
-
-void moduleclick_tags(struct Module *mod, Monitor *m, int child, unsigned int button, unsigned int state);
-void moduleclick_errors(struct Module *mod, Monitor *m, int child, unsigned int button, unsigned int state);
+void ui_bar_modules_setup(ModuleGroup *groups);

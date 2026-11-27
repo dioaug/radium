@@ -2,7 +2,7 @@
 
 #include <X11/Xlib.h>
 
-#include "core.h"
+#include "../core.h"
 
 void ui_errors_setup(void);
 void ui_errors_cleanup(void);

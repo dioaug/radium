@@ -7,14 +7,15 @@ BUILDDIR = build
 DOCSDIR = docs
 BIN = $(BUILDDIR)/radium
 
-SRC = $(wildcard $(SRCDIR)/*.c)
+SRC = $(wildcard $(SRCDIR)/*.c $(SRCDIR)/*/*.c $(SRCDIR)/*/*/*.c)
 LIBSRC = $(wildcard $(LIBDIR)/*/*.c)
 OBJ = $(patsubst $(SRCDIR)/%.c, $(BUILDDIR)/%.o, $(SRC)) \
 	$(patsubst %.c, $(BUILDDIR)/%.o, $(LIBSRC))
 
 all: $(BIN)
 
-$(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
+$(BUILDDIR)/%.o: $(SRCDIR)/%.c
+	@mkdir -p $(@D)
 	$(CC) -c $(CFLAGS) $< -o $@
 
 $(BUILDDIR)/$(LIBDIR)/%.o: $(LIBDIR)/%.c

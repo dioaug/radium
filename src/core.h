@@ -141,7 +141,6 @@ void arrangemon(Monitor *m);
 void attach(Client *c);
 void attachbottom(Client *c);
 void attachstack(Client *c);
-Monitor *bartomon(Window w);
 void buttonpress(XEvent *e);
 void buttonrelease(XEvent *e);
 void cleanupmon(Monitor *mon);

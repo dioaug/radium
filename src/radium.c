@@ -10,7 +10,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include "core.h"
-#include "errors.h"
+#include "ui/errors.h"
 #include "lua.h"
 
 int

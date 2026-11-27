@@ -10,9 +10,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "core.h"
-#include "bar.h"
-#include "errors.h"
-#include "../lib/dynarray/dynarray.h"
+#include "ui/bar/bar.h"
+#include "ui/errors.h"
 #include "config.h"
 #include "util.h"
 #ifdef XINERAMA
@@ -30,12 +29,6 @@ static int sw, sh;           /* X display screen geometry width, height */
 static int bh;               /* bar height */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static unsigned int numlockmask = 0;
-static struct {
-	Monitor *m;
-	void *mod;
-	int child;
-	unsigned int button, state;
-} barpress;
 static void (*handler[LASTEvent]) (XEvent *) = {
 	[ButtonPress] = buttonpress,
 	[ButtonRelease] = buttonrelease,
@@ -167,10 +160,10 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int *bw, int interact)
 		if (*y + *h + 2 * *bw <= m->wy)
 			*y = m->wy;
 	}
-	if (*h < bar.dimensions.height)
-		*h = bar.dimensions.height;
-	if (*w < bar.dimensions.height)
-		*w = bar.dimensions.height;
+	if (*h < ui_bar.dimensions.height)
+		*h = ui_bar.dimensions.height;
+	if (*w < ui_bar.dimensions.height)
+		*w = ui_bar.dimensions.height;
 	if (resizehints || c->isfloating || !c->mon->lt[c->mon->sellt]->arrange) {
 		if (!c->hintsvalid)
 			updatesizehints(c);
@@ -259,17 +252,6 @@ attachstack(Client *c)
 	c->mon->stack = c;
 }
 
-Monitor *
-bartomon(Window w)
-{
-	Monitor *m;
-
-	for (m = mons; m; m = m->next)
-		if (w == m->barwin)
-			return m;
-	return NULL;
-}
-
 void
 buttonpress(XEvent *e)
 {
@@ -289,14 +271,9 @@ buttonpress(XEvent *e)
 		selmon = m;
 		focus(NULL);
 	}
-	if (ev->window == selmon->barwin) {
-		if (clay_pointer_click(&selmon->barpointer, ev->x, ev->y, &barpress.mod, &barpress.child)) {
-			barpress.m = selmon;
-			barpress.button = ev->button;
-			barpress.state = ev->state;
-			return;
-		}
-	} else if ((c = wintoclient(ev->window))) {
+	if (ui_bar_buttonpress(e))
+		return;
+	if ((c = wintoclient(ev->window))) {
 		if (focusonwheel || (ev->button != Button4 && ev->button != Button5))
 			focus(c);
 		XAllowEvents(dpy, ReplayPointer, CurrentTime);
@@ -315,20 +292,8 @@ buttonpress(XEvent *e)
 void
 buttonrelease(XEvent *e)
 {
-	XButtonReleasedEvent *ev = &e->xbutton;
-	Monitor *m = barpress.m;
-	void *mod;
-	int child;
-
-	if (ui_errors_buttonrelease(e))
-		return;
-	if (!m || ev->button != barpress.button)
-		return;
-	barpress.m = NULL;
-	if (ev->window == m->barwin
-	&& clay_pointer_click(&m->barpointer, ev->x, ev->y, &mod, &child)
-	&& mod == barpress.mod && child == barpress.child)
-		bar_click(m, ev->x, ev->y, barpress.button, barpress.state);
+	if (!ui_errors_buttonrelease(e))
+		ui_bar_buttonrelease(e);
 }
 
 void
@@ -350,7 +315,7 @@ cleanup(void)
 	Monitor *m;
 	size_t i;
 
-	bar_stopupdateintervals();
+	ui_bar_stopupdateintervals();
 	view(&a);
 	selmon->lt[selmon->sellt] = &foo;
 	for (m = mons; m; m = m->next)
@@ -372,12 +337,7 @@ cleanup(void)
 //  for (i = 0; i < LENGTH(colors) + 1; i++)
 // 	 free(scheme[i]);
 //  free(scheme);
-	for (int i = 0; i < LENGTH(modulegroups); i++) {
-		for (int z = 0; z < dynarray_length(modulegroups[i].modules); z++)
-			free(modulegroups[i].modules[z].children.content);
-
-		dynarray_destroy(modulegroups[i].modules);
-	}
+	ui_bar_cleanup();
     // free(threads);
 	XDestroyWindow(dpy, wmcheckwin);
 	drw_free(drw);
@@ -397,8 +357,6 @@ cleanupmon(Monitor *mon)
 		for (m = mons; m && m->next != mon; m = m->next);
 		m->next = mon->next;
 	}
-	if (barpress.m == mon)
-		barpress.m = NULL;
 	drw_detach(drw, mon->barwin);
 	XUnmapWindow(dpy, mon->barwin);
 	XDestroyWindow(dpy, mon->barwin);
@@ -428,8 +386,8 @@ clientmessage(XEvent *e)
 			systray->icons = c;
 			if (!XGetWindowAttributes(dpy, c->win, &wa)) {
 				/* use sane defaults */
-				wa.width = bar.dimensions.height;
-				wa.height = bar.dimensions.height;
+				wa.width = ui_bar.dimensions.height;
+				wa.height = ui_bar.dimensions.height;
 				wa.border_width = 0;
 			}
 			c->x = c->oldx = c->y = c->oldy = 0;
@@ -516,7 +474,7 @@ configurenotify(XEvent *e)
 		sw = ev->width;
 		sh = ev->height;
 		if (updategeom() || dirty) {
-			drw_resize(drw, sw, bar.dimensions.height);
+			drw_resize(drw, sw, ui_bar.dimensions.height);
 			updatebars();
 			for (m = mons; m; m = m->next) {
 				for (c = m->clients; c; c = c->next)
@@ -691,26 +649,14 @@ edgesat(Client *c, int x, int y)
 void
 enternotify(XEvent *e)
 {
-	XCrossingEvent *ev = &e->xcrossing;
-	Monitor *m;
-
-	if ((m = bartomon(ev->window)) && clay_pointer_move(&m->barpointer, ev->x, ev->y))
-		drawbar(m, NULL);
+	ui_bar_enternotify(e);
 }
 
 void
 expose(XEvent *e)
 {
-	Monitor *m;
-	XExposeEvent *ev = &e->xexpose;
-
-	if (ui_errors_expose(e))
-		return;
-	if (ev->count == 0 && (m = wintomon(ev->window))) {
-		drawbar(m, NULL);
-		if (m == selmon)
-			updatesystray(0);
-	}
+	if (!ui_errors_expose(e))
+		ui_bar_expose(e);
 }
 
 void
@@ -740,7 +686,7 @@ focus(Client *c)
 	selmon->pertag->sel[selmon->pertag->curtag] = c;
 	if (selmon->lt[selmon->sellt]->arrange == monocle)
 		arrangemon(selmon);
-	drawbars();
+	ui_bar_drawall();
 }
 
 void
@@ -1076,11 +1022,7 @@ keypress(XEvent *e)
 void
 leavenotify(XEvent *e)
 {
-	XCrossingEvent *ev = &e->xcrossing;
-	Monitor *m;
-
-	if ((m = bartomon(ev->window)) && clay_pointer_leave(&m->barpointer))
-		drawbar(m, NULL);
+	ui_bar_leavenotify(e);
 }
 
 void
@@ -1226,13 +1168,10 @@ void
 motionnotify(XEvent *e)
 {
 	XMotionEvent *ev = &e->xmotion;
-	Monitor *m;
 	Client *c;
 
-	if (ui_errors_motionnotify(e))
+	if (ui_errors_motionnotify(e) || ui_bar_motionnotify(e))
 		return;
-	if ((m = bartomon(ev->window)) && clay_pointer_move(&m->barpointer, ev->x, ev->y))
-		drawbar(m, NULL);
 	if ((c = resizewintoclient(ev->window)))
 		XDefineCursor(dpy, c->resizewin, cursor[edgecursor[edgesat(c, ev->x_root, ev->y_root)]]->cursor);
 }
@@ -1494,13 +1433,13 @@ propertynotify(XEvent *e)
 			break;
 		case XA_WM_HINTS:
 			updatewmhints(c);
-			drawbars();
+			ui_bar_drawall();
 			break;
 		}
 		if (ev->atom == XA_WM_NAME || ev->atom == netatom[NetWMName]) {
 			updatetitle(c);
 			if (c == c->mon->sel)
-				drawbar(c->mon, NULL);
+				ui_bar_draw(c->mon, NULL);
 		}
 		if (ev->atom == netatom[NetWMWindowType])
 			updatewindowtype(c);
@@ -1549,7 +1488,7 @@ resize(Client *c, int x, int y, int w, int h, int bw, int interact)
 
 void
 resizebarwin(Monitor *m) {
-	XMoveResizeWindow(dpy, m->barwin, m->wx, m->by, m->ww, bar.dimensions.height);
+	XMoveResizeWindow(dpy, m->barwin, m->wx, m->by, m->ww, ui_bar.dimensions.height);
 }
 
 void
@@ -1682,7 +1621,7 @@ restack(Monitor *m)
 	XEvent ev;
 	XWindowChanges wc;
 
-	drawbar(m, NULL);
+	ui_bar_draw(m, NULL);
 	if (!m->sel)
 		return;
 	if (m->sel->isfloating || !m->lt[m->sellt]->arrange) {
@@ -1935,12 +1874,12 @@ setup(void)
 	/* init system tray */
 	updatesystray(0);
 	/* init bar modules */
-	setupbarmodules();
+	ui_bar_setup();
 	/* init bars */
 	updatebars();
 	ui_errors_setup();
 	updatestatus();
-	bar_initupdateintervals();
+	ui_bar_initupdateintervals();
 	/* supporting window for NetWMCheck */
 	wmcheckwin = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
 	XChangeProperty(dpy, wmcheckwin, netatom[NetWMCheck], XA_WINDOW, 32,
@@ -2022,7 +1961,7 @@ setlayout(const Arg *arg)
 	if (selmon->sel)
 		arrange(selmon);
 	else
-		drawbar(selmon, NULL);
+		ui_bar_draw(selmon, NULL);
 }
 
 /* arg > 1.0 will set mfact absolutely */
@@ -2196,11 +2135,11 @@ togglebar(const Arg *arg)
 	if (showsystray) {
 		XWindowChanges wc;
 		if (!selmon->showbar)
-			wc.y = -bar.dimensions.height;
+			wc.y = -ui_bar.dimensions.height;
 		else if (selmon->showbar) {
 			wc.y = 0;
 			if (!selmon->topbar)
-				wc.y = selmon->mh - bar.dimensions.height;
+				wc.y = selmon->mh - ui_bar.dimensions.height;
 		}
 		XConfigureWindow(dpy, systray->win, CWY, &wc);
 	}
@@ -2373,7 +2312,7 @@ updatebars(void)
 		w = m->ww;
 		if (showsystray && m == systraytomon(m))
 			w -= getsystraywidth();
-		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bar.dimensions.height, 0, depth,
+		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, ui_bar.dimensions.height, 0, depth,
 				InputOutput, visual,
 				CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWColormap|CWEventMask, &wa);
 		XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
@@ -2394,11 +2333,11 @@ updatebarpos(Monitor *m)
 	m->wy = m->my;
 	m->wh = m->mh;
 	if (m->showbar) {
-		m->wh -= bar.dimensions.height;
+		m->wh -= ui_bar.dimensions.height;
 		m->by = m->topbar ? m->wy : m->wy + m->wh;
-		m->wy = m->topbar ? m->wy + bar.dimensions.height : m->wy;
+		m->wy = m->topbar ? m->wy + ui_bar.dimensions.height : m->wy;
 	} else
-		m->by = -bar.dimensions.height;
+		m->by = -ui_bar.dimensions.height;
 }
 
 void
@@ -2605,7 +2544,7 @@ updatestatus(void)
 {
 	if (!gettextprop(root, XA_WM_NAME, stext, sizeof(stext)))
 		strcpy(stext, "radium");
-	drawbar(selmon, NULL);
+	ui_bar_draw(selmon, NULL);
 	updatesystray(1);
 }
 
@@ -2726,7 +2665,7 @@ updatesystray(int updatebar)
 	}
 	w = w ? w + systrayspacing : 1;
 	if (updatebar)
-		drawbar(m, NULL);
+		ui_bar_draw(m, NULL);
 	x = systraypos.x;
 	y = systraypos.y;
 	if (getsystraywidth() == 1)

@@ -7,7 +7,7 @@
 #include <lualib.h>
 
 #include "core.h"
-#include "errors.h"
+#include "ui/errors.h"
 #include "lua.h"
 
 #define STARTUP "radium.startup" /* registry field with the functions given to on_startup() */

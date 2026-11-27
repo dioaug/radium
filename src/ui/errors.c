@@ -8,12 +8,12 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
-#include "bar.h"
-#include "draw.h"
+#include "bar/bar.h"
+#include "../draw.h"
 #include "errors.h"
-#include "util.h"
-#include "../lib/clay/clay.h"
-#include "config.h"
+#include "../util.h"
+#include "../../lib/clay/clay.h"
+#include "../config.h"
 
 static const int ui_errors_winw = 550;
 static const int ui_errors_winh = 350;
@@ -208,16 +208,16 @@ ui_errors_draw(void)
 {
 	Clay_RenderCommandArray cmds;
 
-	while (bar_updating)
+	while (ui_bar_updating)
 		usleep(1000);
-	bar_updating = true;
+	ui_bar_updating = true;
 	cmds = ui_errors_layout();
 	for (int i = 0; i < 4 && ui_errors_measure(); i++)
 		cmds = ui_errors_layout();
 	drw_clear(drw);
 	ui_errors_render(cmds);
 	drw_map(drw, ui_errors_win, 0, 0, ui_errors_winw - 2 * borderpx, ui_errors_winh - 2 * borderpx);
-	bar_updating = false;
+	ui_bar_updating = false;
 }
 
 void
@@ -315,7 +315,7 @@ ui_errors_add(const char *where, const char *fmt, ...)
 	fprintf(stderr, "radium: %s%s%s\n", where ? where : "", where ? ": " : "", e.text);
 	if (ui_errors_isvisible)
 		ui_errors_draw();
-	drawbars();
+	ui_bar_drawall();
 }
 
 int
@@ -342,7 +342,7 @@ ui_errors_toggle(Monitor *m)
 		XMapRaised(dpy, ui_errors_win);
 	}
 	ui_errors_isvisible = !ui_errors_isvisible;
-	drawbars();
+	ui_bar_drawall();
 }
 
 int
