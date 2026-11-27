@@ -10,6 +10,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include "core.h"
+#include "errors.h"
 #include "lua.h"
 
 int
@@ -36,6 +37,8 @@ main(int argc, char *argv[])
 #endif /* __OpenBSD__ */
 	scan();
 	rlua_startup();
+	if (ui_errors_count())
+		ui_errors_toggle(selmon);
 	run();
 	cleanup();
 	rlua_cleanup();

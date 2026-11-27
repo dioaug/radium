@@ -7,6 +7,7 @@
 #include <lualib.h>
 
 #include "core.h"
+#include "errors.h"
 #include "lua.h"
 
 #define STARTUP "radium.startup" /* registry field with the functions given to on_startup() */
@@ -50,13 +51,27 @@ radium_onstartup(lua_State *L)
 	return 0;
 }
 
+static const char *
+where(lua_State *L)
+{
+	lua_Debug ar;
+	const char *file;
+
+	if (!lua_getstack(L, 1, &ar) || !lua_getinfo(L, "Sl", &ar) || ar.currentline <= 0)
+		return NULL;
+	file = strrchr(ar.short_src, '/');
+	return lua_pushfstring(L, "%s:%d", file ? file + 1 : ar.short_src, ar.currentline);
+}
+
 static int
 radium_loadfonts(lua_State *L)
 {
 	int i, n = lua_gettop(L);
+	const char *at;
 
 	for (i = 1; i <= n; i++)
 		luaL_checkstring(L, i);
+	at = where(L);
 	for (i = 1; i <= n; i++) {
 		if (lua_tostring(L, i)[0] == '/')
 			lua_pushvalue(L, i);
@@ -66,7 +81,7 @@ radium_loadfonts(lua_State *L)
 			lua_concat(L, 2);
 		}
 		if (!drw_font_add(lua_tostring(L, -1)))
-			fprintf(stderr, "radium: cannot load font %s\n", lua_tostring(L, -1));
+			ui_errors_add(at, "Cannot load font **%s**", lua_tostring(L, i));
 		lua_pop(L, 1);
 	}
 	return 0;

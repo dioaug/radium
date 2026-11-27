@@ -23,8 +23,6 @@ static const int topbar             = 1;        /* 0 means bottom bar */
 static const int barheight          = 16;       /* 0 means that radium will calculate bar height, >= 1 means radium will user_bh as bar height */
 static const int titlemaxlength     = 60;
 static const int focusonwheel       = 0;
-static const char *fonts[]          = { "CaskaydiaCove Nerd Font:style:bold:size=12", "monospace:size=12" };
-static const char dmenufont[]       = "CaskaydiaCove Nerd Font:style:bold:size=12";
 static const char col_gray1[]       = "#121212";
 static const char col_gray2[]       = "#1c1c1c";
 static const char col_gray3[]       = "#7a7a7a";
@@ -75,7 +73,6 @@ static const Layout layouts[] = {
 
 /* commands */
 static char dmenumon[2] = "0"; /* component of dmenucmd, manipulated in spawn() */
-static const char *dmenucmd[] = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont, "-nb", col_gray1, "-nf", col_gray3, "-sb", col_cyan, "-sf", col_gray4, NULL };
 static const char *roficmd[]  = { "rofi", "-show", "run", "-show-icons", NULL };
 static const char *rofiwndcmd[]  = { "rofi", "-show", "window", NULL };
 static const char *printscreencmd[]  = { "flameshot", "gui", NULL };

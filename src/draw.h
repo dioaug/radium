@@ -35,16 +35,18 @@ typedef struct {
 
 typedef struct {
 	Clay_Color backgroundColor;
+	Clay_CornerRadius cornerRadius;
 	Clay_BorderElementConfig border;
 	Clay_Color textColor;
 } StateStyle;
 
 typedef struct {
-	Clay_ElementDeclaration base;
 	const char *font;
 	uint16_t fontsize;
 	uint16_t fontweight;
 	uint16_t fontstyle;
+	Clay_LayoutConfig layout;
+	StateStyle base;
 	StateStyle subdued;
 	StateStyle selected;
 	StateStyle hover;
@@ -106,7 +108,7 @@ void clay_layout_begin(ClayPointer *p, Clay_Dimensions size);
 Clay_RenderCommandArray clay_layout_end(void);
 Clay_ElementDeclaration clay_style(const Style *s, int states); // pass it as the declaration in CLAY(), so the element is open for hover
 Clay_TextElementConfig clay_text(Clay_TextElementConfig text);
-Clay_TextElementConfig clay_text_style(const Style *s, Clay_TextElementConfig text, int states); // text with the text colors of the element's states
+Clay_TextElementConfig clay_text_style(const Style *s, Clay_TextElementConfig text, int states); // text with the text colors of the element's base and states
 bool clay_pointer_move(ClayPointer *p, int x, int y);
 bool clay_pointer_leave(ClayPointer *p);
 void clay_clickable(void *data, int index); // call first thing inside an element, so clicks on it give data and index

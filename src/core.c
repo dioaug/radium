@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include "core.h"
 #include "bar.h"
+#include "errors.h"
 #include "../lib/dynarray/dynarray.h"
 #include "config.h"
 #include "util.h"
@@ -278,6 +279,8 @@ buttonpress(XEvent *e)
 	Monitor *m;
 	XButtonPressedEvent *ev = &e->xbutton;
 
+	if (ui_errors_buttonpress(e))
+		return;
 	click = ClkRootWin;
 	/* focus monitor if necessary */
 	if ((m = wintomon(ev->window)) && m != selmon
@@ -317,6 +320,8 @@ buttonrelease(XEvent *e)
 	void *mod;
 	int child;
 
+	if (ui_errors_buttonrelease(e))
+		return;
 	if (!m || ev->button != barpress.button)
 		return;
 	barpress.m = NULL;
@@ -360,6 +365,7 @@ cleanup(void)
 		XDestroyWindow(dpy, systray->win);
 		free(systray);
 	}
+	ui_errors_cleanup();
 
 	for (i = 0; i < CurLast; i++)
 		drw_cur_free(drw, cursor[i]);
@@ -698,6 +704,8 @@ expose(XEvent *e)
 	Monitor *m;
 	XExposeEvent *ev = &e->xexpose;
 
+	if (ui_errors_expose(e))
+		return;
 	if (ev->count == 0 && (m = wintomon(ev->window))) {
 		drawbar(m, NULL);
 		if (m == selmon)
@@ -1221,6 +1229,8 @@ motionnotify(XEvent *e)
 	Monitor *m;
 	Client *c;
 
+	if (ui_errors_motionnotify(e))
+		return;
 	if ((m = bartomon(ev->window)) && clay_pointer_move(&m->barpointer, ev->x, ev->y))
 		drawbar(m, NULL);
 	if ((c = resizewintoclient(ev->window)))
@@ -1928,6 +1938,7 @@ setup(void)
 	setupbarmodules();
 	/* init bars */
 	updatebars();
+	ui_errors_setup();
 	updatestatus();
 	bar_initupdateintervals();
 	/* supporting window for NetWMCheck */
@@ -2082,8 +2093,6 @@ spawn(const Arg *arg)
 {
 	struct sigaction sa;
 
-	if (arg->v == dmenucmd)
-		dmenumon[0] = '0' + selmon->num;
 	if (fork() == 0) {
 		if (dpy)
 			close(ConnectionNumber(dpy));

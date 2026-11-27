@@ -396,9 +396,28 @@ inheritedfont(void)
 }
 
 static bool
+claycornerset(Clay_CornerRadius r)
+{
+	return r.topLeft > 0 || r.topRight > 0 || r.bottomLeft > 0 || r.bottomRight > 0;
+}
+
+static bool
 claystateisset(const StateStyle *s)
 {
-	return s->backgroundColor.a > 0 || s->border.color.a > 0 || s->textColor.a > 0;
+	return s->backgroundColor.a > 0 || claycornerset(s->cornerRadius) || s->border.color.a > 0 || s->textColor.a > 0;
+}
+
+static void
+claymerge(StateStyle *st, const StateStyle *s)
+{
+	if (s->backgroundColor.a > 0)
+		st->backgroundColor = s->backgroundColor;
+	if (claycornerset(s->cornerRadius))
+		st->cornerRadius = s->cornerRadius;
+	if (s->border.color.a > 0)
+		st->border = s->border;
+	if (s->textColor.a > 0)
+		st->textColor = s->textColor;
 }
 
 /* the pixel's center, so it's inside the boxes that cover the pixel once
@@ -470,6 +489,8 @@ clay_apply_state(const StateStyle *s, Clay_ElementDeclaration *box, Clay_TextEle
 {
 	if (box && s->backgroundColor.a > 0)
 		box->backgroundColor = s->backgroundColor;
+	if (box && claycornerset(s->cornerRadius))
+		box->cornerRadius = s->cornerRadius;
 	if (box && s->border.color.a > 0)
 		box->border = s->border;
 	if (text && s->textColor.a > 0)
@@ -515,22 +536,26 @@ clay_layout_end(void)
 	return cmds;
 }
 
-/* puts the state styles of s that apply over box and text */
-static void
-clayapplystates(const Style *s, int states, Clay_ElementDeclaration *box, Clay_TextElementConfig *text)
+/* the base of s, with the state styles of s that apply put over it */
+static StateStyle
+claystate(const Style *s, int states)
 {
+	StateStyle st = s->base;
+
 	if (states & ClaySubdued)
-		clay_apply_state(&s->subdued, box, text);
+		claymerge(&st, &s->subdued);
 	if (states & ClaySelected)
-		clay_apply_state(&s->selected, box, text);
+		claymerge(&st, &s->selected);
 	if (clayhovered(&s->hover, states & ClaySelected))
-		clay_apply_state(&s->hover, box, text);
+		claymerge(&st, &s->hover);
+	return st;
 }
 
 Clay_ElementDeclaration
 clay_style(const Style *s, int states)
 {
-	Clay_ElementDeclaration d = s->base;
+	Clay_ElementDeclaration d = { .layout = s->layout };
+	StateStyle st = claystate(s, states);
 	Fnt f = inheritedfont();
 	int32_t n;
 	const int32_t *open = clay_open_elements(&n);
@@ -544,7 +569,7 @@ clay_style(const Style *s, int states)
 			.weight = s->fontweight ? s->fontweight : f.weight,
 			.style = s->fontstyle ? s->fontstyle : f.style,
 		};
-	clayapplystates(s, states, &d, NULL);
+	clay_apply_state(&st, &d, NULL);
 	return d;
 }
 
@@ -563,8 +588,10 @@ clay_text(Clay_TextElementConfig text)
 Clay_TextElementConfig
 clay_text_style(const Style *s, Clay_TextElementConfig text, int states)
 {
+	StateStyle st = claystate(s, states);
+
 	text = clay_text(text);
-	clayapplystates(s, states, NULL, &text);
+	clay_apply_state(&st, NULL, &text);
 	return text;
 }
 

@@ -22,7 +22,7 @@ typedef void (*ModLayoutFunc)(struct Module *mod, Monitor *m, bool updatecontent
 typedef void (*ModClickFunc)(struct Module *mod, Monitor *m, int child, unsigned int button, unsigned int state);
 
 /* Groups, modules and children are styled with a Style (see draw.h):
- * a Clay element declaration as the base, with state styles that go over
+ * a Clay layout and a base state style, with state styles that go over
  * it. Hover follows the pointer but skips selected elements, and modules
  * say when subdued and selected apply, like the tag module does for Tags
  * without windows and the viewed Tags. Clay draws borders over the
@@ -79,5 +79,7 @@ void modulelayout_rect(struct Module *mod, Monitor *m, bool updatecontent);
 void modulelayout_wintitle(struct Module *mod, Monitor *m, bool updatecontent);
 void modulelayout_time(struct Module *mod, Monitor *m, bool updatecontent);
 void modulelayout_systray(struct Module *mod, Monitor *m, bool updatecontent);
+void modulelayout_errors(struct Module *mod, Monitor *m, bool updatecontent);
 
 void moduleclick_tags(struct Module *mod, Monitor *m, int child, unsigned int button, unsigned int state);
+void moduleclick_errors(struct Module *mod, Monitor *m, int child, unsigned int button, unsigned int state);
