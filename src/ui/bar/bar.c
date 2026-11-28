@@ -1,16 +1,14 @@
 #include <math.h>
-#include <pthread.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <stdbool.h>
+#include <time.h>
 #include "bar.h"
+#include "systray.h"
 #include "../../util.h"
 #include "../../draw.h"
 #include "../../../lib/dynarray/dynarray.h"
 #include "../../../lib/clay/clay.h"
 
-static pthread_t *ui_bar_intervalthreads;
 static ModuleGroup ui_bar_modulegroups[ModuleGroupLast];
 static struct {
 	Window win;
@@ -18,7 +16,7 @@ static struct {
 	int child;
 	unsigned int button, state;
 } ui_bar_press;
-bool ui_bar_updating;
+static bool ui_bar_updating;
 
 Bar ui_bar = {
 	.dimensions = {0,1},
@@ -42,8 +40,20 @@ ui_bar_wintomon(Window w)
 	return NULL;
 }
 
+Monitor *
+ui_bar_modulemon(int monitormode)
+{
+	switch (monitormode) {
+	case ModuleMonitorModeSelected:
+		return selmon;
+	case ModuleMonitorModeMain:
+		return mons;
+	}
+	return NULL;
+}
+
 static void
-ui_bar_layout(Monitor *m, ModuleId *update)
+ui_bar_layout(Monitor *m)
 {
 	static const Clay_LayoutAlignmentX groupalign[] = {
 		[ModuleGroupLeft] = CLAY_ALIGN_X_LEFT,
@@ -70,11 +80,13 @@ ui_bar_layout(Monitor *m, ModuleId *update)
 				if (dynarray_length(group->modules) > 0) {
 					CLAY(CLAY_IDI("group", g), clay_style(&group->style, 0)) {
 						for (int i = 0; i < dynarray_length(group->modules); i++) {
-							bool updatecontent = update != NULL
-								&& update->ModuleGroupIndex == g
-								&& update->ModuleIndex == i;
+							Module *mod = &group->modules[i];
+							Monitor *on = ui_bar_modulemon(mod->monitormode);
 
-							group->modules[i].layoutfunc(&group->modules[i], m, updatecontent);
+							if (on && on != m)
+								continue;
+							mod->layoutfunc(mod, m, mod->updatecontent);
+							mod->updatecontent = false;
 						}
 					}
 				}
@@ -94,21 +106,22 @@ ui_bar_contentheight(void)
 }
 
 void
-ui_bar_draw(Monitor *m, ModuleId* updatespecificmodcontent)
+ui_bar_draw(Monitor *m)
 {
 	Clay_RenderCommandArray cmds;
 	Clay_ElementData el;
 	Monitor *mon;
-	int height = 0, resized;
+	Vec2 pos;
+	int height = 0, resized, moved = 0;
 
-	if (!m->showbar || (ui_bar_updating && updatespecificmodcontent == NULL))
+	if (!m->showbar || ui_bar_updating)
 		return;
 
 	ui_bar_updating = true;
 
 	/* the bar sizes its own height; the layout height only bounds culling */
 	clay_layout_begin(&m->barpointer, (Clay_Dimensions){ m->ww, m->mh });
-	ui_bar_layout(m, updatespecificmodcontent);
+	ui_bar_layout(m);
 	cmds = clay_layout_end();
 
 	m->barh = ui_bar_contentheight();
@@ -118,7 +131,7 @@ ui_bar_draw(Monitor *m, ModuleId* updatespecificmodcontent)
 	if ((resized = height != ui_bar.dimensions.height)) {
 		ui_bar.dimensions.height = height;
 		clay_layout_begin(&m->barpointer, (Clay_Dimensions){ m->ww, m->mh });
-		ui_bar_layout(m, NULL);
+		ui_bar_layout(m);
 		cmds = clay_layout_end();
 		for (mon = mons; mon; mon = mon->next)
 			updatebarpos(mon);
@@ -127,8 +140,11 @@ ui_bar_draw(Monitor *m, ModuleId* updatespecificmodcontent)
 	resizebarwin(m);
 
 	el = Clay_GetElementData(CLAY_ID("systray"));
-	if (el.found)
-		systraypos = (Vec2){ roundf(el.boundingBox.x), roundf(el.boundingBox.y) };
+	if (el.found) {
+		pos = (Vec2){ m->wx + roundf(el.boundingBox.x), m->by + roundf(el.boundingBox.y) };
+		moved = pos.x != systraypos.x || pos.y != systraypos.y;
+		systraypos = pos;
+	}
 
 	drw_clear(drw);
 	clay_layout_render(drw, cmds);
@@ -136,12 +152,12 @@ ui_bar_draw(Monitor *m, ModuleId* updatespecificmodcontent)
 
 	ui_bar_updating = false;
 
-	if (resized) {
+	if (resized)
 		for (mon = mons; mon; mon = mon->next)
 			if (mon != m)
-				ui_bar_draw(mon, NULL);
+				ui_bar_draw(mon);
+	if (resized || moved)
 		updatesystray(0);
-	}
 }
 
 void
@@ -150,7 +166,7 @@ ui_bar_drawall(void)
 	Monitor *m;
 
 	for (m = mons; m; m = m->next)
-		ui_bar_draw(m, NULL);
+		ui_bar_draw(m);
 }
 
 void
@@ -170,64 +186,49 @@ ui_bar_cleanup(void)
 	}
 }
 
-static void* ui_bar_moduleroutine(void* arg) {
-	ModuleId mID = *(ModuleId*)arg;
-	free(arg);
+static double
+ui_bar_now(void)
+{
+	struct timespec ts;
 
-	while (1) {
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-		while (ui_bar_updating)
-			usleep(10000);
-		ui_bar_draw(selmon, &mID);
-		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-
-		usleep(ui_bar_modulegroups[mID.ModuleGroupIndex].modules[mID.ModuleIndex].updateinterval * 1000000);
-	}
-
-	return NULL;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 
-void
-ui_bar_initupdateintervals(void)
+int
+ui_bar_runupdateintervals(void)
 {
-	ModuleId *validintervals = dynarray_create(ModuleId);
+	double now = ui_bar_now(), next = -1;
+	int all = 0, onsel = 0, onmain = 0;
+	Monitor *on;
+	Module *mod;
 
-	for (int modulegroup = 0; modulegroup < LENGTH(ui_bar_modulegroups); modulegroup++) {
-		for (int i = 0; i < dynarray_length(ui_bar_modulegroups[modulegroup].modules); i++) {
-			if (ui_bar_modulegroups[modulegroup].modules[i].updateinterval > 0) {
-				ModuleId mId = (ModuleId){.ModuleGroupIndex = modulegroup, .ModuleIndex = i};
-				dynarray_push(validintervals, mId);
+	for (int g = 0; g < LENGTH(ui_bar_modulegroups); g++) {
+		for (int i = 0; i < dynarray_length(ui_bar_modulegroups[g].modules); i++) {
+			mod = &ui_bar_modulegroups[g].modules[i];
+			if (mod->updateinterval <= 0)
+				continue;
+			if (mod->nextupdate <= now) {
+				mod->updatecontent = true;
+				mod->nextupdate = now + mod->updateinterval;
+				on = ui_bar_modulemon(mod->monitormode);
+				all |= !on;
+				onsel |= on == selmon;
+				onmain |= on == mons;
 			}
+			if (next < 0 || mod->nextupdate < next)
+				next = mod->nextupdate;
 		}
 	}
-
-	ui_bar_intervalthreads = dynarray_create(pthread_t);
-	for (size_t i = 0; i < dynarray_length(validintervals); ++i) {
-		ModuleId* modinfo = malloc(sizeof(ModuleId));
-		pthread_t thread;
-
-		*modinfo = validintervals[i];
-		if (pthread_create(&thread, NULL, ui_bar_moduleroutine, modinfo) != 0) {
-			perror("Failed to create module interval thread");
-			free(modinfo);
-		} else
-			dynarray_push(ui_bar_intervalthreads, thread);
+	if (all)
+		ui_bar_drawall();
+	else {
+		if (onsel)
+			ui_bar_draw(selmon);
+		if (onmain && mons != selmon)
+			ui_bar_draw(mons);
 	}
-
-	dynarray_destroy(validintervals);
-}
-
-void
-ui_bar_stopupdateintervals(void)
-{
-	if (!ui_bar_intervalthreads)
-		return;
-	for (size_t i = 0; i < dynarray_length(ui_bar_intervalthreads); i++) {
-		pthread_cancel(ui_bar_intervalthreads[i]);
-		pthread_join(ui_bar_intervalthreads[i], NULL);
-	}
-	dynarray_destroy(ui_bar_intervalthreads);
-	ui_bar_intervalthreads = NULL;
+	return next < 0 ? -1 : ceil((next - now) * 1000);
 }
 
 int
@@ -272,7 +273,7 @@ ui_bar_motionnotify(XEvent *e)
 	if (!(m = ui_bar_wintomon(ev->window)))
 		return 0;
 	if (clay_pointer_move(&m->barpointer, ev->x, ev->y))
-		ui_bar_draw(m, NULL);
+		ui_bar_draw(m);
 	return 1;
 }
 
@@ -285,7 +286,7 @@ ui_bar_enternotify(XEvent *e)
 	if (!(m = ui_bar_wintomon(ev->window)))
 		return 0;
 	if (clay_pointer_move(&m->barpointer, ev->x, ev->y))
-		ui_bar_draw(m, NULL);
+		ui_bar_draw(m);
 	return 1;
 }
 
@@ -298,7 +299,7 @@ ui_bar_leavenotify(XEvent *e)
 	if (!(m = ui_bar_wintomon(ev->window)))
 		return 0;
 	if (clay_pointer_leave(&m->barpointer))
-		ui_bar_draw(m, NULL);
+		ui_bar_draw(m);
 	return 1;
 }
 
@@ -311,7 +312,7 @@ ui_bar_expose(XEvent *e)
 	if (!(m = ui_bar_wintomon(ev->window)))
 		return 0;
 	if (ev->count == 0) {
-		ui_bar_draw(m, NULL);
+		ui_bar_draw(m);
 		if (m == selmon)
 			updatesystray(0);
 	}

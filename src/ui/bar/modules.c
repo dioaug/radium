@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <time.h>
 #include "modules.h"
+#include "systray.h"
 #include "../../config.h"
 #include "../../util.h"
 #include "../../draw.h"
@@ -361,6 +362,7 @@ ui_bar_modules_setup(ModuleGroup *groups)
 
 	Module module_systray = (Module){
 		.layoutfunc = ui_bar_modules_layoutsystray,
+		.monitormode = ModuleMonitorModeMain,
 		.updateinterval = 0,
 		.children = {
 			// .elements = boxtest,
@@ -368,26 +370,19 @@ ui_bar_modules_setup(ModuleGroup *groups)
 			.style = {
 				/* the width follows the tray's icons, see ui_bar_modules_layoutsystray() */
 				.layout = { .sizing = { .height = CLAY_SIZING_FIXED(16) } },
-				.base = {
-					.backgroundColor = ui_bar_modules_boxbg,
-					.cornerRadius = CLAY_CORNER_RADIUS(ui_bar_modules_boxradius),
-					.border = { .color = ui_bar_modules_boxbd, .width = CLAY_BORDER_OUTSIDE(1) },
-				},
 			},
 		},
 		.style = {
 			.layout = {
-				.padding = {0, 0, 0, 0},
-				.childGap = 2,
+				.padding = {4, 4, 0, 0},
+				.childGap = 4,
 				.childAlignment = { .y = CLAY_ALIGN_Y_TOP },
-			},
-			.base = {
-				.backgroundColor = ui_bar_modules_boxbg,
-				.cornerRadius = CLAY_CORNER_RADIUS(ui_bar_modules_boxradius),
-				.border = { .color = ui_bar_modules_boxbd, .width = CLAY_BORDER_OUTSIDE(0) },
 			},
 		}
 	};
+	systrayiconsize = module_systray.children.style.layout.sizing.height.size.minMax.max;
+	systrayspacing = module_systray.style.layout.childGap;
+	systraymonitormode = module_systray.monitormode;
 
 	dynarray_push(groups[ModuleGroupLeft].modules, module_tags);
 	dynarray_push(groups[ModuleGroupCenter].modules, module_wintitle);

@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
@@ -208,16 +207,12 @@ ui_errors_draw(void)
 {
 	Clay_RenderCommandArray cmds;
 
-	while (ui_bar_updating)
-		usleep(1000);
-	ui_bar_updating = true;
 	cmds = ui_errors_layout();
 	for (int i = 0; i < 4 && ui_errors_measure(); i++)
 		cmds = ui_errors_layout();
 	drw_clear(drw);
 	ui_errors_render(cmds);
 	drw_map(drw, ui_errors_win, 0, 0, ui_errors_winw - 2 * borderpx, ui_errors_winh - 2 * borderpx);
-	ui_bar_updating = false;
 }
 
 void

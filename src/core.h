@@ -18,20 +18,6 @@
 #define TAGMASK                 ((1 << LENGTH(tags)) - 1)
 #define TAGSLENGTH              (LENGTH(tags))
 #define OPAQUE                  0xffU
-#define _NET_SYSTEM_TRAY_ORIENTATION_HORZ 0
-
-#define SYSTEM_TRAY_REQUEST_DOCK    0
-/* XEMBED messages */
-#define XEMBED_EMBEDDED_NOTIFY      0
-#define XEMBED_WINDOW_ACTIVATE      1
-#define XEMBED_FOCUS_IN             4
-#define XEMBED_MODALITY_ON         10
-#define XEMBED_MAPPED              (1 << 0)
-#define XEMBED_WINDOW_ACTIVATE      1
-#define XEMBED_WINDOW_DEACTIVATE    2
-#define VERSION_MAJOR               0
-#define VERSION_MINOR               0
-#define XEMBED_EMBEDDED_VERSION (VERSION_MAJOR << 16) | VERSION_MINOR
 
 /* enums */
 enum { CurNormal, CurResizeTL, CurResizeT, CurResizeTR, CurResizeR,
@@ -42,7 +28,6 @@ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
 	NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayOrientationHorz, NetSystemTrayVisual,
 	NetWMFullscreen, NetActiveWindow, NetWMWindowType,
 	NetWMWindowTypeDialog, NetWMWindowTypeDock, NetWMWindowTypeToolbar, NetClientList, NetDesktopNames, NetDesktopViewport, NetNumberOfDesktops, NetCurrentDesktop, NetLast }; /* EWMH atoms */
-enum { Manager, Xembed, XembedInfo, XLast }; /* Xembed atoms */
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMChangeState, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
 	ClkClientWin, ClkClientBorder, ClkRootWin, ClkLast }; /* clicks */
@@ -127,12 +112,6 @@ typedef struct {
 	int monitor;
 } Rule;
 
-typedef struct Systray   Systray;
-struct Systray {
-	Window win;
-	Client *icons;
-};
-
 /* function declarations */
 void applyrules(Client *c);
 int applysizehints(Client *c, int *x, int *y, int *w, int *h, int *bw, int interact);
@@ -162,7 +141,6 @@ Atom getatomprop(Client *c, Atom prop);
 int getrootptr(int *x, int *y);
 long getstate(Window w);
 pid_t getstatusbarpid();
-unsigned int getsystraywidth();
 int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 void grabbuttons(Client *c, int focused);
 void grabkeys(void);
@@ -176,7 +154,6 @@ Client *nexttiled(Client *c);
 void pop(Client *c);
 void propertynotify(XEvent *e);
 Monitor *recttomon(int x, int y, int w, int h);
-void removesystrayicon(Client *i);
 void resize(Client *c, int x, int y, int w, int h, int bw, int interact);
 void resizeclient(Client *c, int x, int y, int w, int h, int bw);
 void resizebarwin(Monitor *m);
@@ -196,7 +173,6 @@ void setrootbackground(void);
 void setviewport(void);
 void seturgent(Client *c, int urg);
 void showhide(Client *c);
-Monitor *systraytomon(Monitor *m);
 
 void unfocus(Client *c, int setfocus);
 void unmanage(Client *c, int destroyed);
@@ -210,15 +186,11 @@ void updatenumlockmask(void);
 void updateresizewin(Client *c);
 void updatesizehints(Client *c);
 void updatestatus(void);
-void updatesystray(int updatebar);
-void updatesystrayicongeom(Client *i, int w, int h);
-void updatesystrayiconstate(Client *i, XPropertyEvent *ev);
 void updatetitle(Client *c);
 void updatewindowtype(Client *c);
 void updatewmhints(Client *c);
 Client *wintoclient(Window w);
 Monitor *wintomon(Window w);
-Client *wintosystrayicon(Window w);
 int xerror(Display *dpy, XErrorEvent *ee);
 int xerrordummy(Display *dpy, XErrorEvent *ee);
 int xerrorstart(Display *dpy, XErrorEvent *ee);
@@ -270,10 +242,7 @@ extern Drw *drw;
 
 extern Monitor *mons, *selmon;
 
-// SYSTRAY
-extern Systray *systray;
-extern Vec2 systraypos;
-extern unsigned long systrayorientation;
+extern Atom netatom[NetLast];
 
 
 

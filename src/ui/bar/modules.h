@@ -35,7 +35,10 @@ typedef struct Module {
 	ModLayoutFunc layoutfunc;
 	ModClickFunc clickfunc; /* NULL if it takes no clicks */
 	ModuleChildren children;
+	int monitormode;
 	double updateinterval;
+	double nextupdate;
+	bool updatecontent;
 	Style style;
 } Module;
 
@@ -49,6 +52,12 @@ enum ModuleGroupType {
 	ModuleGroupCenter,
 	ModuleGroupRight,
 	ModuleGroupLast,
+};
+
+enum ModuleMonitorMode {
+	ModuleMonitorModeAll,
+	ModuleMonitorModeSelected,
+	ModuleMonitorModeMain,
 };
 
 void ui_bar_modules_setup(ModuleGroup *groups);
